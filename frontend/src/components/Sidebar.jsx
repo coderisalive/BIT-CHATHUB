@@ -1,0 +1,392 @@
+import React, { useState } from 'react';
+import { useAuth } from '../context/AuthContext';
+import { db } from '../config/firebaseConfig';
+import { ref, onValue } from 'firebase/database';
+import CreateGroupModal from './CreateGroupModal';
+
+const Sidebar = ({ onChatSelect, selectedChatId }) => {
+  const { user, logout, updateProfile, searchUsers, getContacts, addContact, removeContact, createGroup, getGroups } = useAuth();
+  const [activeFilter, setActiveFilter] = useState('All');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showProfile, setShowProfile] = useState(false);
+  const [showNewChat, setShowNewChat] = useState(false);
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [newName, setNewName] = useState(user?.name || '');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [allChats, setAllChats] = useState([]);
+
+  // Load persistent contacts + Groups with Real-time Listener + Socket Fallback
+  React.useEffect(() => {
+    if (!user) return;
+
+    const uid = user.uid || user.firebaseUID;
+    const contactsRef = ref(db, `users/${uid}/contacts`);
+    const groupsRef = ref(db, `users/${uid}/groups`);
+    
+    const loadFromApi = async () => {
+      console.log('[Sidebar] Re-fetching contacts & groups via API...');
+      try {
+        const [contacts, groups] = await Promise.all([getContacts(), getGroups()]);
+        console.log(`[Sidebar] API Results: ${contacts?.length || 0} contacts, ${groups?.length || 0} groups`);
+        
+        const all = [
+          ...(contacts || []).map(c => ({ 
+            ...c, 
+            id: c.uid || c.id,
+            avatar: c.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${c.email || c.id}`
+          })),
+          ...(groups || []).map(g => ({ 
+            ...g, 
+            id: g.id, 
+            isGroup: true,
+            avatar: g.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${g.name || g.id}`
+          }))
+        ].sort((a, b) => (b.lastMessageTime || 0) - (a.lastMessageTime || 0));
+        
+        console.log('[Sidebar] Final combined list count:', all.length);
+        setAllChats(all);
+      } catch (err) {
+        console.error('[Sidebar] Error in loadFromApi:', err);
+      }
+    };
+
+    // 1. Listen for Contacts
+    const unsubscribeContacts = onValue(contactsRef, (snapshot) => {
+      loadFromApi(); // Just re-fetch all for simplicity
+    });
+
+    // 2. Listen for Groups
+    const unsubscribeGroups = onValue(groupsRef, (snapshot) => {
+      loadFromApi();
+    });
+
+    // 3. Socket Fallback
+    if (window.socket) {
+      window.socket.on('contacts_updated', loadFromApi);
+      window.socket.on('groups_updated', loadFromApi);
+    }
+
+    loadFromApi();
+
+    return () => {
+      unsubscribeContacts();
+      unsubscribeGroups();
+      if (window.socket) {
+        window.socket.off('contacts_updated', loadFromApi);
+        window.socket.off('groups_updated', loadFromApi);
+      }
+    };
+  }, [user]);
+
+  const filteredChats = (allChats || []).filter(chat => {
+    if (!chat) return false;
+    const nameStr = chat.name || chat.id || 'Unknown';
+    const emailStr = chat.email || '';
+    const matchesSearch = nameStr.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                         (!chat.isGroup && emailStr.toLowerCase().includes(searchTerm.toLowerCase()));
+    
+    if (activeFilter === 'Unread') return matchesSearch && chat.unread > 0;
+    if (activeFilter === 'Favourites') return matchesSearch && chat.favourite;
+    return matchesSearch;
+  });
+
+  const handleUpdateName = async () => {
+    const success = await updateProfile(newName);
+    if (success) {
+      setIsEditingName(false);
+    }
+  };
+
+  const handleUserSearch = async () => {
+    if (!searchQuery.trim()) return;
+    setIsSearching(true);
+    const results = await searchUsers(searchQuery);
+    setSearchResults(results);
+    setIsSearching(false);
+  };
+
+  const startChat = async (newUser) => {
+    // 1. Resolve a reliable UID (from search result or existing chat)
+    const contactUid = newUser.firebaseUID || newUser.uid || newUser.id;
+    
+    if (!contactUid) {
+      console.error('[Sidebar] Cannot start chat: Missing UID in object:', newUser);
+      return;
+    }
+
+    // 2. See if they are already in our reactive 'allChats' list
+    const existingChat = allChats.find(c => {
+      const idMatch = (c.id === contactUid) || (c.uid === contactUid) || (c.firebaseUID === contactUid);
+      const emailMatch = c.email && newUser.email && (c.email.toLowerCase() === newUser.email.toLowerCase());
+      return idMatch || emailMatch;
+    });
+    
+    if (!existingChat) {
+      // Prepare the permanent record
+      const newChatObj = {
+        uid: contactUid,
+        firebaseUID: contactUid,
+        name: newUser.name || newUser.email,
+        email: newUser.email,
+        avatar: newUser.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${newUser.name || newUser.email}`,
+        lastMessage: 'Say hi! 👋',
+        lastMessageTime: Date.now(),
+        unread: 0,
+        favourite: false
+      };
+      
+      // 3. Persist to backend. 
+      // We also do an optimistic update so the user sees them instantly
+      setAllChats(prev => [newChatObj, ...prev]);
+      
+      try {
+        await addContact(newChatObj);
+        onChatSelect({ ...newChatObj, id: contactUid });
+      } catch (err) {
+        console.error('[Sidebar] Failed to persist new contact:', err);
+      }
+    } else {
+      // Just select the existing one
+      onChatSelect(existingChat);
+    }
+    
+    // UI Cleanup
+    setShowNewChat(false);
+    setSearchQuery('');
+    setSearchResults([]);
+  };
+
+  const handleRemoveContact = async (e, chatUid) => {
+    e.stopPropagation(); // Prevent selecting the chat when clicking remove
+    if (window.confirm('Remove this contact?')) {
+      await removeContact(chatUid);
+      // The onValue listener will automatically update allChats
+    }
+  };
+
+  if (showProfile) {
+    return (
+      <div className="sidebar profile-sidebar">
+        <div className="profile-header">
+          <button className="icon-btn" onClick={() => setShowProfile(false)}>
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" /></svg>
+          </button>
+          <h2>Profile</h2>
+        </div>
+
+        <div className="profile-content">
+          <div className="profile-picture-container">
+            <img src={user?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name || 'User'}`} alt="Avatar" />
+          </div>
+
+          <div className="profile-info-section">
+            <label>Your Name</label>
+            <div className="info-val">
+              {isEditingName ? (
+                <div className="edit-name-wrapper">
+                  <input
+                    type="text"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    autoFocus
+                  />
+                  <button className="icon-btn" onClick={handleUpdateName}>
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="var(--accent)"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" /></svg>
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <span>{user?.name || 'User'}</span>
+                  <button className="icon-btn" onClick={() => { setIsEditingName(true); setNewName(user?.name || ''); }}>
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" /></svg>
+                  </button>
+                </>
+              )}
+            </div>
+            <p className="info-desc">This is not your username or pin. This name will be visible to your BIT CHAT contacts.</p>
+          </div>
+
+          <div className="profile-info-section">
+            <label>Email / Account</label>
+            <div className="info-val">
+              <span>{user?.email || 'No email provided'}</span>
+            </div>
+          </div>
+
+          <div className="profile-actions">
+            <button className="logout-btn" onClick={logout}>
+              Log out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (showNewChat) {
+    return (
+      <div className="sidebar profile-sidebar">
+        <div className="profile-header">
+          <button className="icon-btn" onClick={() => { setShowNewChat(false); setSearchResults([]); setSearchQuery(''); }}>
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" /></svg>
+          </button>
+          <h2>New Chat</h2>
+        </div>
+
+        <div className="search-container" style={{ padding: '20px' }}>
+          <div className="search-bar">
+            <input
+              type="text"
+              placeholder="Search by email or phone"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && handleUserSearch()}
+            />
+            <button className="icon-btn" onClick={handleUserSearch}>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="rgba(255,255,255,0.5)"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" /></svg>
+            </button>
+          </div>
+        </div>
+
+        <div className="chat-list">
+          {isSearching ? (
+            <div className="no-chats-msg">Searching...</div>
+          ) : searchResults.length > 0 ? (
+            searchResults.map(u => (
+              <div key={u.firebaseUID} className="chat-item" onClick={() => startChat(u)}>
+                <div className="avatar">
+                  <img src={u.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.name || 'User'}`} alt={u.name} />
+                </div>
+                <div className="chat-info">
+                  <span className="chat-name">{u.name}</span>
+                  <p className="latest-msg">{u.email}</p>
+                </div>
+              </div>
+            ))
+          ) : searchQuery ? (
+            <div className="no-chats-msg">No user found with that email/phone.</div>
+          ) : (
+            <div className="no-chats-msg">Enter an email or phone number to find someone.</div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="sidebar">
+      <div className="sidebar-header">
+        <div className="header-top">
+          <h1>Chats</h1>
+          <div className="header-actions">
+            <button className="icon-btn" title="Profile" onClick={() => setShowProfile(true)}>
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" /></svg>
+            </button>
+            <button className="icon-btn" title="New Group" onClick={() => setShowCreateGroup(true)}>
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 2.02 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>
+            </button>
+            <button className="icon-btn" title="New Chat" onClick={() => setShowNewChat(true)}>
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>
+            </button>
+            <button className="icon-btn" title="Settings">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
+            </button>
+          </div>
+        </div>
+
+        <div className="search-container">
+          <div className="search-bar">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="rgba(255,255,255,0.5)"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" /></svg>
+            <input
+              type="text"
+              placeholder="Search or start a new chat"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="filter-chips">
+          {['All', 'Unread', 'Favourites'].map(filter => (
+            <button
+              key={filter}
+              className={`chip ${activeFilter === filter ? 'active' : ''}`}
+              onClick={() => setActiveFilter(filter)}
+            >
+              {filter === 'Unread' ? `Unread` : filter}
+            </button>
+          ))}
+          <button className="chip-icon">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M7 10l5 5 5-5z" /></svg>
+          </button>
+        </div>
+      </div>
+
+      <div className="chat-list">
+        {filteredChats.map(chat => (
+          <div
+            key={chat.id}
+            className={`chat-item ${selectedChatId === chat.id ? 'active' : ''}`}
+            onClick={() => {
+              onChatSelect(chat);
+              // Reset unread count in DB
+              const API_BASE = 'http://localhost:5001/api';
+              fetch(`${API_BASE}/messages/reset-unread`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: user.uid || user.firebaseUID, contactId: chat.uid || chat.id })
+              }).catch(e => console.error('Failed to reset unread:', e));
+            }}
+          >
+            <div className="avatar">
+              <img src={chat.avatar} alt={chat.name} />
+            </div>
+            <div className="chat-info">
+              <div className="chat-info-top">
+                <span className="chat-name">{chat.name}</span>
+                <span className="chat-time">
+                  {chat.lastMessageTime ? new Date(chat.lastMessageTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'just now'}
+                </span>
+              </div>
+              <div className="chat-info-bottom">
+                <p className="latest-msg">{chat.lastMessage || 'Say hi! 👋'}</p>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', pointerEvents: 'auto' }}>
+                  {chat.unread > 0 && <span className="unread-badge">{chat.unread}</span>}
+                  <button 
+                    className="remove-btn" 
+                    title="Remove Contact"
+                    onClick={(e) => handleRemoveContact(e, chat.uid || chat.id)}
+                  >
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+        {filteredChats.length === 0 && (
+          <div className="no-chats-msg">No chats found.</div>
+        )}
+      </div>
+
+      <div className="sidebar-footer">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="rgba(255,255,255,0.4)"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM9 6c0-1.66 1.34-3 3-3s3 1.34 3 3v2H9V6zm9 14H6V10h12v10zm-6-3c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2z" /></svg>
+        <span>Your personal messages are end-to-end encrypted</span>
+      </div>
+      {showCreateGroup && (
+        <CreateGroupModal 
+          onClose={() => setShowCreateGroup(false)} 
+          onSuccess={(group) => {
+            onChatSelect(group);
+            setShowCreateGroup(false);
+          }}
+        />
+      )}
+    </div>
+  );
+};
+
+export default Sidebar;
