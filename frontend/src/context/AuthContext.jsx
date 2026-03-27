@@ -13,7 +13,7 @@ import { io } from 'socket.io-client';
 
 const AuthContext = createContext();
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5001';
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'https://bit-chathub.onrender.com';
 
 export const useAuth = () => useContext(AuthContext);
 
