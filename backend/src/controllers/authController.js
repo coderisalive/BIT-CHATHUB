@@ -216,4 +216,5 @@ const removeContact = async (req, res) => {
   }
 };
 
+
 module.exports = { syncUser, getMe, updateProfile, searchUsers, getContacts, addContact, removeContact };
