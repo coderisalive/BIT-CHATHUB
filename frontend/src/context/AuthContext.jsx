@@ -194,6 +194,58 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const getGroupMembers = async (groupId) => {
+    try {
+      const idToken = await auth.currentUser.getIdToken();
+      const res = await axios.get(`${API_URL}/groups/${groupId}/members`, {
+        headers: { Authorization: `Bearer ${idToken}` }
+      });
+      return res.data;
+    } catch (error) {
+      console.error('Fetch group members error:', error);
+      return [];
+    }
+  };
+
+  const addGroupMember = async (groupId, newMemberUid) => {
+    try {
+      const idToken = await auth.currentUser.getIdToken();
+      const res = await axios.post(`${API_URL}/groups/${groupId}/members`, { newMemberUid }, {
+        headers: { Authorization: `Bearer ${idToken}` }
+      });
+      return res.data;
+    } catch (error) {
+      console.error('Add group member error:', error);
+      return null;
+    }
+  };
+
+  const clearChatMessages = async (chatId) => {
+    try {
+      const idToken = await auth.currentUser.getIdToken();
+      await axios.delete(`${API_URL}/messages/${chatId}`, {
+        headers: { Authorization: `Bearer ${idToken}` }
+      });
+      return true;
+    } catch (error) {
+      console.error('Clear chat error:', error);
+      return false;
+    }
+  };
+
+  const clearGroupMessages = async (groupId) => {
+    try {
+      const idToken = await auth.currentUser.getIdToken();
+      await axios.delete(`${API_URL}/groups/${groupId}/messages`, {
+        headers: { Authorization: `Bearer ${idToken}` }
+      });
+      return true;
+    } catch (error) {
+      console.error('Clear group messages error:', error);
+      return false;
+    }
+  };
+
   const getChatId = (uid1, uid2) => {
     return uid1 < uid2 ? `${uid1}_${uid2}` : `${uid2}_${uid1}`;
   };
@@ -221,6 +273,10 @@ export const AuthProvider = ({ children }) => {
     createGroup,
     getGroups,
     getGroupMessages,
+    getGroupMembers,
+    addGroupMember,
+    clearChatMessages,
+    clearGroupMessages,
     getMessages,
     sendMessage,
     getChatId,

@@ -3,6 +3,7 @@
 :root {
   --sidebar-bg: #111b21;
   --main-bg: #202c33;
+  --bg: #233138;
   --text-main: #e9edef;
   --text-secondary: #8696a0;
   --accent: #00a884;
@@ -416,6 +417,8 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  position: relative;
+  z-index: 100;
 }
 
 .header-left {

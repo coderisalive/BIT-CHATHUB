@@ -1,15 +1,36 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { db } from '../config/firebaseConfig';
-import { ref, onValue } from 'firebase/database';
+import GroupInfoModal from './GroupInfoModal';
+import AddMemberModal from './AddMemberModal';
+import ChatInfoModal from './ChatInfoModal';
 
 const ChatWindow = ({ chat }) => {
-  const { user, sendMessage, getChatId, socket, getMessages, getGroupMessages } = useAuth();
+  const { user, getChatId, socket, getMessages, getGroupMessages, clearChatMessages, clearGroupMessages } = useAuth();
   const [msg, setMsg] = useState('');
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
+  
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showDropdown, setShowDropdown] = useState(false);
+  
+  const [showGroupInfo, setShowGroupInfo] = useState(false);
+  const [showChatInfo, setShowChatInfo] = useState(false);
+  const [showAddMember, setShowAddMember] = useState(false);
+
+  const dropdownRef = useRef(null);
 
   const isGroup = chat?.isGroup;
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // 1. Load Initial History
   React.useEffect(() => {
@@ -119,31 +140,89 @@ const ChatWindow = ({ chat }) => {
     setMsg('');
   };
 
+  const handleClearChat = async () => {
+    if (window.confirm("Are you sure you want to clear this chat? This only clears it for you.")) {
+      let success = false;
+      if (isGroup) {
+        success = await clearGroupMessages(chat.id);
+      } else {
+        const chatId = getChatId(user.firebaseUID, chat.uid || chat.id);
+        success = await clearChatMessages(chatId);
+      }
+      if (success) {
+        setMessages([]);
+      }
+      setShowDropdown(false);
+    }
+  };
+
   const handleKeyPress = (e) => {
     if (e.key === 'Enter') {
       handleSend();
     }
   };
 
+  const displayedMessages = messages.filter(m => 
+    !searchQuery.trim() || m.text?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   return (
     <div className="chat-window">
       <div className="chat-header">
         <div className="header-left">
-          <img src={chat.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${chat.name || 'Chat'}`} alt={chat.name} className="header-avatar" />
-          <div className="header-info">
+          <img 
+            src={chat.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${chat.name || 'Chat'}`} 
+            alt={chat.name} 
+            className="header-avatar"
+            style={{ cursor: 'pointer' }}
+            onClick={() => isGroup ? setShowGroupInfo(true) : setShowChatInfo(true)}
+            title="View Info"
+          />
+          <div className="header-info" onClick={() => isGroup ? setShowGroupInfo(true) : setShowChatInfo(true)} style={{ cursor: 'pointer' }}>
             <span className="header-name">{chat.name}</span>
             <span className="header-status">online</span>
           </div>
         </div>
-        <div className="header-right">
-          <button className="icon-btn">
+        <div className="header-right" style={{ position: 'relative' }}>
+          <button className={`icon-btn ${showSearch ? 'active' : ''}`} onClick={() => setShowSearch(!showSearch)} title="Search Messages">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
           </button>
-          <button className="icon-btn">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
-          </button>
+          
+          <div ref={dropdownRef} style={{ display: 'inline-block' }}>
+            <button className="icon-btn" onClick={() => setShowDropdown(!showDropdown)} title="Menu">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
+            </button>
+            {showDropdown && (
+              <div style={{ position: 'absolute', top: '100%', right: '0', background: 'var(--bg)', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.5)', zIndex: 100, minWidth: '160px', overflow: 'hidden', border: '1px solid var(--border)' }}>
+                <button style={{ width: '100%', padding: '12px 16px', textAlign: 'left', background: 'none', border: 'none', borderBottom: '1px solid var(--border)', color: 'white', cursor: 'pointer', fontSize: '14px' }} onClick={() => { setShowSearch(!showSearch); setShowDropdown(false); }}>Search</button>
+                {isGroup && (
+                  <>
+                    <button style={{ width: '100%', padding: '12px 16px', textAlign: 'left', background: 'none', border: 'none', borderBottom: '1px solid var(--border)', color: 'white', cursor: 'pointer', fontSize: '14px' }} onClick={() => { setShowAddMember(true); setShowDropdown(false); }}>Add Member</button>
+                    <button style={{ width: '100%', padding: '12px 16px', textAlign: 'left', background: 'none', border: 'none', borderBottom: '1px solid var(--border)', color: 'white', cursor: 'pointer', fontSize: '14px' }} onClick={() => { setShowGroupInfo(true); setShowDropdown(false); }}>Group Info</button>
+                  </>
+                )}
+                {!isGroup && (
+                  <button style={{ width: '100%', padding: '12px 16px', textAlign: 'left', background: 'none', border: 'none', borderBottom: '1px solid var(--border)', color: 'white', cursor: 'pointer', fontSize: '14px' }} onClick={() => { setShowChatInfo(true); setShowDropdown(false); }}>Chat Info</button>
+                )}
+                <button style={{ width: '100%', padding: '12px 16px', textAlign: 'left', background: 'none', border: 'none', color: '#ff6b6b', cursor: 'pointer', fontSize: '14px' }} onClick={handleClearChat}>Clear Chat</button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
+
+      {showSearch && (
+        <div style={{ padding: '10px 20px', background: 'var(--search-bg)', borderBottom: '1px solid var(--border)' }}>
+          <input 
+            type="text" 
+            placeholder="Search messages..." 
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            style={{ width: '100%', padding: '10px 14px', borderRadius: '6px', background: 'var(--bg)', color: 'white', border: '1px solid var(--border)' }}
+            autoFocus
+          />
+        </div>
+      )}
 
       <div className="message-area">
         {loading ? (
@@ -152,7 +231,7 @@ const ChatWindow = ({ chat }) => {
           </div>
         ) : (
           <div className="message-list">
-            {messages.map(m => (
+            {displayedMessages.map(m => (
               <div key={m.id} className={`message-wrapper ${m.senderId === user.firebaseUID ? 'sent' : 'received'}`}>
                 <div className="message-bubble">
                   {isGroup && m.senderId !== user.firebaseUID && (
@@ -202,6 +281,9 @@ const ChatWindow = ({ chat }) => {
           </button>
         )}
       </div>
+      {showGroupInfo && <GroupInfoModal group={chat} onClose={() => setShowGroupInfo(false)} />}
+      {showChatInfo && <ChatInfoModal chat={chat} onClose={() => setShowChatInfo(false)} />}
+      {showAddMember && <AddMemberModal group={chat} onClose={() => setShowAddMember(false)} onSuccess={() => setShowAddMember(false)} />}
     </div>
   );
 };

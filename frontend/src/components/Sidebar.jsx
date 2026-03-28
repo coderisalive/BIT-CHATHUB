@@ -17,6 +17,7 @@ const Sidebar = ({ onChatSelect, selectedChatId }) => {
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
   const [allChats, setAllChats] = useState([]);
+  const [profileModalChat, setProfileModalChat] = useState(null);
 
   // Load persistent contacts + Groups with Real-time Listener + Socket Fallback
   React.useEffect(() => {
@@ -32,19 +33,31 @@ const Sidebar = ({ onChatSelect, selectedChatId }) => {
         const [contacts, groups] = await Promise.all([getContacts(), getGroups()]);
         console.log(`[Sidebar] API Results: ${contacts?.length || 0} contacts, ${groups?.length || 0} groups`);
         
-        const all = [
-          ...(contacts || []).map(c => ({ 
+        const allMap = new Map();
+
+        // 1. Process contacts
+        (contacts || []).forEach(c => {
+          const id = c.uid || c.id;
+          allMap.set(id, { 
             ...c, 
-            id: c.uid || c.id,
+            id,
             avatar: c.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${c.email || c.id}`
-          })),
-          ...(groups || []).map(g => ({ 
+          });
+        });
+
+        // 2. Process groups (groups will override any mistakenly added contact with the same ID)
+        (groups || []).forEach(g => {
+          const id = g.id;
+          allMap.set(id, { 
             ...g, 
-            id: g.id, 
+            id, 
             isGroup: true,
             avatar: g.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${g.name || g.id}`
-          }))
-        ].sort((a, b) => (b.lastMessageTime || 0) - (a.lastMessageTime || 0));
+          });
+        });
+
+        const all = Array.from(allMap.values())
+          .sort((a, b) => (b.lastMessageTime || 0) - (a.lastMessageTime || 0));
         
         console.log('[Sidebar] Final combined list count:', all.length);
         setAllChats(all);
@@ -206,7 +219,7 @@ const Sidebar = ({ onChatSelect, selectedChatId }) => {
                 </>
               )}
             </div>
-            <p className="info-desc">This is not your username or pin. This name will be visible to your BIT CHAT contacts.</p>
+            <p className="info-desc">This is not your username or pin. This name will be visible to your BIT CHATHUB contacts.</p>
           </div>
 
           <div className="profile-info-section">
@@ -341,7 +354,10 @@ const Sidebar = ({ onChatSelect, selectedChatId }) => {
               }).catch(e => console.error('Failed to reset unread:', e));
             }}
           >
-            <div className="avatar">
+            <div className="avatar" onClick={(e) => {
+              e.stopPropagation();
+              setProfileModalChat(chat);
+            }} style={{ cursor: 'pointer' }} title="View Profile">
               <img src={chat.avatar} alt={chat.name} />
             </div>
             <div className="chat-info">
@@ -384,6 +400,32 @@ const Sidebar = ({ onChatSelect, selectedChatId }) => {
             setShowCreateGroup(false);
           }}
         />
+      )}
+
+      {profileModalChat && (
+        <div className="modal-overlay" onClick={() => setProfileModalChat(null)}>
+          <div className="auth-card" style={{ maxWidth: '350px', textAlign: 'center', padding: '30px', position: 'relative' }} onClick={e => e.stopPropagation()}>
+            <button className="icon-btn" onClick={() => setProfileModalChat(null)} style={{ position: 'absolute', top: '15px', right: '15px' }}>
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+            </button>
+            <img 
+              src={profileModalChat.avatar} 
+              alt={profileModalChat.name} 
+              style={{ width: '120px', height: '120px', borderRadius: '50%', marginBottom: '16px', border: '3px solid var(--accent)' }}
+            />
+            <h2 style={{ marginBottom: '8px', wordBreak: 'break-word' }}>{profileModalChat.name}</h2>
+            {profileModalChat.email && (
+              <p style={{ color: 'var(--text-secondary)', marginBottom: '8px', fontSize: '15px', wordBreak: 'break-word' }}>
+                ✉️ {profileModalChat.email}
+              </p>
+            )}
+            {profileModalChat.isGroup && (
+              <p style={{ color: 'var(--text-secondary)', marginBottom: '8px', fontSize: '15px' }}>
+                👥 Group Chat
+              </p>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

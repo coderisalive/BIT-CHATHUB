@@ -120,8 +120,8 @@ io.on('connection', (socket) => {
       // 1. Persist to groupMessages
       await adminDb.ref(`groupMessages/${groupId}`).push(messageData);
 
-      // 2. Broadcast to everyone in group room
-      io.to(groupId).emit('receive_group_message', { 
+      // 2. Broadcast to everyone in group room EXCEPT the sender
+      socket.to(groupId).emit('receive_group_message', { 
         groupId, 
         ...messageData 
       });
@@ -178,20 +178,33 @@ app.use('/api/users', userRoutes);
 const groupRoutes = require('./src/routes/groupRoutes');
 app.use('/api/groups', groupRoutes);
 
-// Message History Endpoint (Bypassing Frontend Permission Issues)
-app.get('/api/messages/:chatId', async (req, res) => {
+const { protect } = require('./src/middleware/authMiddleware');
+
+// Message History Endpoint (Bypassing Frontend Permission Issues but with Auth)
+app.get('/api/messages/:chatId', protect, async (req, res) => {
   try {
     const { chatId } = req.params;
     const { db: adminDb } = require('./src/config/firebaseAdmin');
     const messagesRef = adminDb.ref(`messages/${chatId}`);
-    const snapshot = await messagesRef.once('value');
+    const clearRef = adminDb.ref(`users/${req.user.uid}/clears/${chatId}`);
+    
+    const [snapshot, clearSnap] = await Promise.all([
+      messagesRef.once('value'),
+      clearRef.once('value')
+    ]);
+    
     const data = snapshot.val();
+    const clearedAt = clearSnap.val() || 0;
     
     if (data) {
-      const msgList = Object.keys(data).map(key => ({
-        id: key,
-        ...data[key]
-      })).sort((a, b) => a.timestamp - b.timestamp);
+      const msgList = Object.keys(data)
+        .map(key => ({
+          id: key,
+          ...data[key]
+        }))
+        .filter(m => m.timestamp >= clearedAt)
+        .sort((a, b) => a.timestamp - b.timestamp);
+        
       res.json(msgList);
     } else {
       res.json([]);
@@ -202,19 +215,31 @@ app.get('/api/messages/:chatId', async (req, res) => {
   }
 });
 
-app.get('/api/groups/:groupId/messages', async (req, res) => {
+app.get('/api/groups/:groupId/messages', protect, async (req, res) => {
   try {
     const { groupId } = req.params;
     const { db: adminDb } = require('./src/config/firebaseAdmin');
+    
     const messagesRef = adminDb.ref(`groupMessages/${groupId}`);
-    const snapshot = await messagesRef.once('value');
+    const clearRef = adminDb.ref(`users/${req.user.uid}/clears/${groupId}`);
+    
+    const [snapshot, clearSnap] = await Promise.all([
+      messagesRef.once('value'),
+      clearRef.once('value')
+    ]);
+    
     const data = snapshot.val();
+    const clearedAt = clearSnap.val() || 0;
     
     if (data) {
-      const msgList = Object.keys(data).map(key => ({
-        id: key,
-        ...data[key]
-      })).sort((a, b) => a.timestamp - b.timestamp);
+      const msgList = Object.keys(data)
+        .map(key => ({
+          id: key,
+          ...data[key]
+        }))
+        .filter(m => m.timestamp >= clearedAt)
+        .sort((a, b) => a.timestamp - b.timestamp);
+        
       res.json(msgList);
     } else {
       res.json([]);
@@ -222,6 +247,37 @@ app.get('/api/groups/:groupId/messages', async (req, res) => {
   } catch (error) {
     console.error('[API] Group History fetch error:', error);
     res.status(500).json({ error: 'Failed to fetch group history' });
+  }
+});
+
+// Clear Message History Endpoint (Local Clear)
+app.delete('/api/messages/:chatId', protect, async (req, res) => {
+  try {
+    const { chatId } = req.params;
+    const { db: adminDb } = require('./src/config/firebaseAdmin');
+    
+    // Set clearedAt timestamp for this user & chat
+    await adminDb.ref(`users/${req.user.uid}/clears/${chatId}`).set(Date.now());
+    
+    res.json({ success: true, message: 'Chat cleared locally successfully' });
+  } catch (error) {
+    console.error('[API] Clear history error:', error);
+    res.status(500).json({ error: 'Failed to clear chat history locally' });
+  }
+});
+
+app.delete('/api/groups/:groupId/messages', protect, async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const { db: adminDb } = require('./src/config/firebaseAdmin');
+    
+    // Set clearedAt timestamp for this user & group
+    await adminDb.ref(`users/${req.user.uid}/clears/${groupId}`).set(Date.now());
+    
+    res.json({ success: true, message: 'Group chat cleared locally successfully' });
+  } catch (error) {
+    console.error('[API] Clear group history error:', error);
+    res.status(500).json({ error: 'Failed to clear group chat history' });
   }
 });
 

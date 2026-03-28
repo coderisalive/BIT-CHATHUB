@@ -2,21 +2,62 @@ import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 
 const CreateGroupModal = ({ onClose, onSuccess }) => {
-  const { getContacts, createGroup } = useAuth();
+  const { getContacts, createGroup, searchUsers } = useAuth();
   const [groupName, setGroupName] = useState('');
   const [contacts, setContacts] = useState([]);
   const [selectedMembers, setSelectedMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  
+  const [emailInput, setEmailInput] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState('');
 
   React.useEffect(() => {
     const loadContacts = async () => {
       const data = await getContacts();
-      setContacts(data || []);
+      const validContacts = (data || []).filter(c => c.name || c.email);
+      setContacts(validContacts);
       setLoading(false);
     };
     loadContacts();
   }, []);
+
+  const handleAddByEmail = async () => {
+    if (!emailInput.trim()) return;
+    setIsSearching(true);
+    setSearchError('');
+    
+    try {
+      const results = await searchUsers(emailInput.trim());
+      if (results && results.length > 0) {
+        const foundUser = results[0];
+        const uid = foundUser.firebaseUID || foundUser.uid || foundUser.id;
+        
+        if (uid) {
+          setContacts(prev => {
+            if (!prev.find(c => (c.uid || c.id) === uid)) {
+              return [foundUser, ...prev];
+            }
+            return prev;
+          });
+          
+          if (!selectedMembers.includes(uid)) {
+            setSelectedMembers(prev => [...prev, uid]);
+          }
+          
+          setEmailInput('');
+        }
+      } else {
+        setSearchError('User not found. They might not be registered.');
+      }
+    } catch (err) {
+      console.error('Email search error:', err);
+      setSearchError('Error searching for user.');
+    } finally {
+      setIsSearching(false);
+    }
+  };
 
   const toggleMember = (uid) => {
     setSelectedMembers(prev => 
@@ -55,8 +96,43 @@ const CreateGroupModal = ({ onClose, onSuccess }) => {
             />
           </div>
 
+          <div className="form-group">
+            <label>Or Add by Email</label>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <input 
+                type="text" 
+                placeholder="user@example.com" 
+                value={emailInput}
+                onChange={(e) => { setEmailInput(e.target.value); setSearchError(''); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddByEmail();
+                  }
+                }}
+              />
+              <button 
+                type="button" 
+                onClick={handleAddByEmail}
+                disabled={isSearching || !emailInput.trim()}
+                style={{
+                  padding: '10px 16px',
+                  background: 'var(--accent)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontWeight: '500'
+                }}
+              >
+                {isSearching ? '...' : 'Add'}
+              </button>
+            </div>
+            {searchError && <div style={{ color: '#ff6b6b', fontSize: '13px', marginTop: '6px' }}>{searchError}</div>}
+          </div>
+
           <div className="form-group" style={{ marginBottom: '0' }}>
-            <label>Add Members ({selectedMembers.length} selected)</label>
+            <label>Select Members ({selectedMembers.length} selected)</label>
           </div>
           
           <div className="members-list" style={{ 
