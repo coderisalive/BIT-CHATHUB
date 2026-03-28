@@ -5,7 +5,7 @@ import AddMemberModal from './AddMemberModal';
 import ChatInfoModal from './ChatInfoModal';
 
 const ChatWindow = ({ chat }) => {
-  const { user, getChatId, socket, getMessages, getGroupMessages, clearChatMessages, clearGroupMessages } = useAuth();
+  const { user, getChatId, socket, getMessages, getGroupMessages, clearChatMessages, clearGroupMessages, deleteMessage } = useAuth();
   const [msg, setMsg] = useState('');
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -13,12 +13,14 @@ const ChatWindow = ({ chat }) => {
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
+  const [activeMsgId, setActiveMsgId] = useState(null);
   
   const [showGroupInfo, setShowGroupInfo] = useState(false);
   const [showChatInfo, setShowChatInfo] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
 
   const dropdownRef = useRef(null);
+  const msgDropdownRef = useRef(null);
 
   const isGroup = chat?.isGroup;
 
@@ -26,6 +28,9 @@ const ChatWindow = ({ chat }) => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
         setShowDropdown(false);
+      }
+      if (msgDropdownRef.current && !msgDropdownRef.current.contains(event.target)) {
+        setActiveMsgId(null);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -93,12 +98,18 @@ const ChatWindow = ({ chat }) => {
       });
     };
 
+    const handleMessageDeleted = (data) => {
+      setMessages(prev => prev.filter(m => m.id !== data.messageId));
+    };
+
     socket.on('receive_message', handleReceivePrivate);
     socket.on('receive_group_message', handleReceiveGroup);
+    socket.on('message_deleted', handleMessageDeleted);
     
     return () => {
       socket.off('receive_message', handleReceivePrivate);
       socket.off('receive_group_message', handleReceiveGroup);
+      socket.off('message_deleted', handleMessageDeleted);
     };
   }, [socket, chat, isGroup]);
 
@@ -138,6 +149,24 @@ const ChatWindow = ({ chat }) => {
     }]);
     
     setMsg('');
+  };
+
+  const handleDeleteForMe = async (messageId) => {
+    const chatId = isGroup ? chat.id : getChatId(user.firebaseUID, chat.uid || chat.id);
+    const success = await deleteMessage(chatId, messageId, 'local', isGroup);
+    if (success) {
+      setMessages(prev => prev.filter(m => m.id !== messageId));
+    }
+    setActiveMsgId(null);
+  };
+
+  const handleDeleteForEveryone = async (messageId) => {
+    const chatId = isGroup ? chat.id : getChatId(user.firebaseUID, chat.uid || chat.id);
+    const success = await deleteMessage(chatId, messageId, 'global', isGroup);
+    if (success) {
+      setMessages(prev => prev.filter(m => m.id !== messageId));
+    }
+    setActiveMsgId(null);
   };
 
   const handleClearChat = async () => {
@@ -239,6 +268,26 @@ const ChatWindow = ({ chat }) => {
                       {m.senderName}
                     </div>
                   )}
+                  
+                  <button 
+                    className="message-dropdown-trigger" 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActiveMsgId(activeMsgId === m.id ? null : m.id);
+                    }}
+                  >
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
+                  </button>
+
+                  {activeMsgId === m.id && (
+                    <div className="message-options-menu" ref={msgDropdownRef}>
+                      <button onClick={() => handleDeleteForMe(m.id)}>Delete for me</button>
+                      {m.senderId === user.firebaseUID && (
+                        <button className="delete-btn" onClick={() => handleDeleteForEveryone(m.id)}>Delete for everyone</button>
+                      )}
+                    </div>
+                  )}
+
                   <p>{m.text}</p>
                   <div className="message-status">
                     <span className="message-time">{m.time}</span>

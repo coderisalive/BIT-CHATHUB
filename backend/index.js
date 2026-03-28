@@ -187,14 +187,17 @@ app.get('/api/messages/:chatId', protect, async (req, res) => {
     const { db: adminDb } = require('./src/config/firebaseAdmin');
     const messagesRef = adminDb.ref(`messages/${chatId}`);
     const clearRef = adminDb.ref(`users/${req.user.uid}/clears/${chatId}`);
+    const deletedRef = adminDb.ref(`users/${req.user.uid}/deletedMessages/${chatId}`);
     
-    const [snapshot, clearSnap] = await Promise.all([
+    const [snapshot, clearSnap, deletedSnap] = await Promise.all([
       messagesRef.once('value'),
-      clearRef.once('value')
+      clearRef.once('value'),
+      deletedRef.once('value')
     ]);
     
     const data = snapshot.val();
     const clearedAt = clearSnap.val() || 0;
+    const deletedMsgs = deletedSnap.val() || {};
     
     if (data) {
       const msgList = Object.keys(data)
@@ -202,7 +205,7 @@ app.get('/api/messages/:chatId', protect, async (req, res) => {
           id: key,
           ...data[key]
         }))
-        .filter(m => m.timestamp >= clearedAt)
+        .filter(m => m.timestamp >= clearedAt && !deletedMsgs[m.id])
         .sort((a, b) => a.timestamp - b.timestamp);
         
       res.json(msgList);
@@ -222,14 +225,17 @@ app.get('/api/groups/:groupId/messages', protect, async (req, res) => {
     
     const messagesRef = adminDb.ref(`groupMessages/${groupId}`);
     const clearRef = adminDb.ref(`users/${req.user.uid}/clears/${groupId}`);
+    const deletedRef = adminDb.ref(`users/${req.user.uid}/deletedMessages/${groupId}`);
     
-    const [snapshot, clearSnap] = await Promise.all([
+    const [snapshot, clearSnap, deletedSnap] = await Promise.all([
       messagesRef.once('value'),
-      clearRef.once('value')
+      clearRef.once('value'),
+      deletedRef.once('value')
     ]);
     
     const data = snapshot.val();
     const clearedAt = clearSnap.val() || 0;
+    const deletedMsgs = deletedSnap.val() || {};
     
     if (data) {
       const msgList = Object.keys(data)
@@ -237,7 +243,7 @@ app.get('/api/groups/:groupId/messages', protect, async (req, res) => {
           id: key,
           ...data[key]
         }))
-        .filter(m => m.timestamp >= clearedAt)
+        .filter(m => m.timestamp >= clearedAt && !deletedMsgs[m.id])
         .sort((a, b) => a.timestamp - b.timestamp);
         
       res.json(msgList);
@@ -278,6 +284,73 @@ app.delete('/api/groups/:groupId/messages', protect, async (req, res) => {
   } catch (error) {
     console.error('[API] Clear group history error:', error);
     res.status(500).json({ error: 'Failed to clear group chat history' });
+  }
+});
+
+// Individual Message Deletion
+app.delete('/api/messages/:chatId/:messageId/local', protect, async (req, res) => {
+  try {
+    const { chatId, messageId } = req.params;
+    const { db: adminDb } = require('./src/config/firebaseAdmin');
+    await adminDb.ref(`users/${req.user.uid}/deletedMessages/${chatId}/${messageId}`).set(true);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete message locally' });
+  }
+});
+
+app.delete('/api/messages/:chatId/:messageId/global', protect, async (req, res) => {
+  try {
+    const { chatId, messageId } = req.params;
+    const { db: adminDb } = require('./src/config/firebaseAdmin');
+    const msgRef = adminDb.ref(`messages/${chatId}/${messageId}`);
+    const snapshot = await msgRef.once('value');
+    if (!snapshot.exists()) return res.status(404).json({ error: 'Message not found' });
+    
+    const msgData = snapshot.val();
+    if (msgData.senderId !== req.user.uid) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    await msgRef.remove();
+    // Broadcast deletion
+    io.to(chatId).emit('message_deleted', { chatId, messageId, isGroup: false });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete message globally' });
+  }
+});
+
+app.delete('/api/groups/:groupId/messages/:messageId/local', protect, async (req, res) => {
+  try {
+    const { groupId, messageId } = req.params;
+    const { db: adminDb } = require('./src/config/firebaseAdmin');
+    await adminDb.ref(`users/${req.user.uid}/deletedMessages/${groupId}/${messageId}`).set(true);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete group message locally' });
+  }
+});
+
+app.delete('/api/groups/:groupId/messages/:messageId/global', protect, async (req, res) => {
+  try {
+    const { groupId, messageId } = req.params;
+    const { db: adminDb } = require('./src/config/firebaseAdmin');
+    const msgRef = adminDb.ref(`groupMessages/${groupId}/${messageId}`);
+    const snapshot = await msgRef.once('value');
+    if (!snapshot.exists()) return res.status(404).json({ error: 'Message not found' });
+    
+    const msgData = snapshot.val();
+    if (msgData.senderId !== req.user.uid) {
+      return res.status(403).json({ error: 'Unauthorized' });
+    }
+
+    await msgRef.remove();
+    // Broadcast deletion
+    io.to(groupId).emit('message_deleted', { groupId, messageId, isGroup: true });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete group message globally' });
   }
 });
 

@@ -706,3 +706,69 @@ body {
 .btn-secondary:hover {
   background-color: rgba(255, 255, 255, 0.1) !important;
 }
+
+/* Message Dropdown Styles */
+.message-bubble {
+  position: relative;
+}
+
+.message-dropdown-trigger {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s, background 0.2s;
+  z-index: 5;
+}
+
+.message-bubble:hover .message-dropdown-trigger {
+  opacity: 1;
+}
+
+.message-dropdown-trigger:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.message-options-menu {
+  position: absolute;
+  top: 24px;
+  right: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  z-index: 100;
+  min-width: 140px;
+  overflow: hidden;
+}
+
+.message-options-menu button {
+  width: 100%;
+  padding: 8px 12px;
+  text-align: left;
+  background: none;
+  border: none;
+  color: white;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.2s;
+}
+
+.message-options-menu button:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.message-options-menu button.delete-btn {
+  color: #ff6b6b;
+}
+

@@ -246,6 +246,23 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const deleteMessage = async (chatId, messageId, type, isGroup) => {
+    try {
+      const idToken = await auth.currentUser.getIdToken();
+      const endpoint = isGroup 
+        ? `${API_URL}/groups/${chatId}/messages/${messageId}/${type}`
+        : `${API_URL}/messages/${chatId}/${messageId}/${type}`;
+      
+      await axios.delete(endpoint, {
+        headers: { Authorization: `Bearer ${idToken}` }
+      });
+      return true;
+    } catch (error) {
+      console.error(`Delete message ${type} error:`, error);
+      return false;
+    }
+  };
+
   const getChatId = (uid1, uid2) => {
     return uid1 < uid2 ? `${uid1}_${uid2}` : `${uid2}_${uid1}`;
   };
@@ -277,6 +294,7 @@ export const AuthProvider = ({ children }) => {
     addGroupMember,
     clearChatMessages,
     clearGroupMessages,
+    deleteMessage,
     getMessages,
     sendMessage,
     getChatId,
