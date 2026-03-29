@@ -1,0 +1,36 @@
+====================================================
+BIT CHAT - COMPLETED TASKS (2026-03-29)
+====================================================
+
+1. IMAGE VISIBILITY & SYNC FIXES
+----------------------------------------------------
+- Resolved "receiver can't see image" issue by correcting SOCKET_URL to localhost:5001.
+- Restored historical message loading by adding missing Authorization headers to getMessages and getGroupMessages API calls.
+- Normalized email comparisons in ChatWindow to ensure live socket messages correctly match active chats.
+- Verified that "📷 Image" text correctly appears in the sidebar for messages containing images.
+
+2. VOICE MESSAGING SUPPORT
+----------------------------------------------------
+- Integrated Browser MediaRecorder API to capture audio directly from the chat UI.
+- Implemented Start/Stop/Cancel recording controls with a visual pulse animation and timer.
+- Updated the backend upload system to support .webm audio files via ImageKit.
+- Added a minimalist audio player to the chat bubbles for seamless playback.
+- Updated sidebars to show "🎤 Voice Note" for audio messages.
+
+3. MESSAGE DELETION 404 FIX
+----------------------------------------------------
+- Fixed the "404 Not Found" error occurring when deleting recently sent messages.
+- Synchronized temporary frontend IDs (temp-177...) with real Firebase database keys.
+- Implemented a backend confirmation event (message_persistence_success) that sends the real ID back to the sender instantly.
+- Verified that "Delete for everyone" now works for all message types immediately after sending.
+
+4. AUTO-DELETE STORAGE SYSTEM (48H)
+----------------------------------------------------
+- Implemented a tracking system in Firebase (/uploads) to monitor every ImageKit upload.
+- Created a background scheduler using node-cron that runs every hour.
+- Automated cleanup: Deletes files from ImageKit and their tracking records from Firebase once they exceed 48 hours of age.
+- Optimized deletion logic to avoid overhead by using indexed timestamp queries.
+
+====================================================
+STATUS: ALL FEATURES VERIFIED AND STABLE
+====================================================
