@@ -1,9 +1,9 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { 
-  onAuthStateChanged, 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
-  signOut, 
+import {
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut,
   updateProfile as updateFirebaseProfile
 } from 'firebase/auth';
 import { ref, set, push, onValue } from 'firebase/database';
@@ -13,7 +13,7 @@ import { io } from 'socket.io-client';
 
 const AuthContext = createContext();
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'https://bit-chathub.onrender.com';
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5001';
 
 export const useAuth = () => useContext(AuthContext);
 
@@ -47,7 +47,7 @@ export const AuthProvider = ({ children }) => {
             headers: { Authorization: `Bearer ${token}` }
           });
           console.log("[Auth] Backend Response Data:", data);
-          
+
           if (data.isMock) {
             console.log("[Auth] Limited Mode detected. Preserving Firebase identity.");
             const combined = { ...firebaseUser, ...data, email: firebaseUser.email, name: data.name || firebaseUser.displayName };
@@ -81,7 +81,7 @@ export const AuthProvider = ({ children }) => {
   const updateProfileInDB = async (newName) => {
     try {
       const idToken = await auth.currentUser.getIdToken();
-      const res = await axios.put(`${API_URL}/users/profile`, 
+      const res = await axios.put(`${API_URL}/users/profile`,
         { name: newName },
         { headers: { Authorization: `Bearer ${idToken}` } }
       );
@@ -95,7 +95,10 @@ export const AuthProvider = ({ children }) => {
 
   const getMessages = async (chatId) => {
     try {
-      const response = await axios.get(`${API_URL.replace('/api/auth', '').replace('/api', '')}/api/messages/${chatId}`);
+      const idToken = await auth.currentUser.getIdToken();
+      const response = await axios.get(`${API_URL.replace('/api/auth', '').replace('/api', '')}/api/messages/${chatId}`, {
+        headers: { Authorization: `Bearer ${idToken}` }
+      });
       return response.data;
     } catch (error) {
       console.error('Fetch messages error:', error);
@@ -249,10 +252,10 @@ export const AuthProvider = ({ children }) => {
   const deleteMessage = async (chatId, messageId, type, isGroup) => {
     try {
       const idToken = await auth.currentUser.getIdToken();
-      const endpoint = isGroup 
+      const endpoint = isGroup
         ? `${API_URL}/groups/${chatId}/messages/${messageId}/${type}`
         : `${API_URL}/messages/${chatId}/${messageId}/${type}`;
-      
+
       await axios.delete(endpoint, {
         headers: { Authorization: `Bearer ${idToken}` }
       });
@@ -270,7 +273,7 @@ export const AuthProvider = ({ children }) => {
   const sendMessage = async (targetUid, text) => {
     // We no longer write to Firebase from the frontend to avoid permission issues.
     // The backend will handle the database write once it receives the socket event.
-    return true; 
+    return true;
   };
 
   const logout = () => {

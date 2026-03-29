@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { auth } from '../config/firebaseConfig';
 import GroupInfoModal from './GroupInfoModal';
 import AddMemberModal from './AddMemberModal';
 import ChatInfoModal from './ChatInfoModal';
@@ -9,15 +10,17 @@ const ChatWindow = ({ chat }) => {
   const [msg, setMsg] = useState('');
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
-  
+
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const [activeMsgId, setActiveMsgId] = useState(null);
-  
+
   const [showGroupInfo, setShowGroupInfo] = useState(false);
   const [showChatInfo, setShowChatInfo] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef(null);
 
   const dropdownRef = useRef(null);
   const msgDropdownRef = useRef(null);
@@ -44,7 +47,7 @@ const ChatWindow = ({ chat }) => {
     const loadHistory = async () => {
       setLoading(true);
       let history = [];
-      
+
       if (isGroup) {
         history = await getGroupMessages(chat.id);
         if (socket) socket.emit('join_group', chat.id);
@@ -52,12 +55,12 @@ const ChatWindow = ({ chat }) => {
         const chatId = getChatId(user.firebaseUID, chat.uid || chat.id);
         history = await getMessages(chatId);
       }
-      
+
       const formattedHistory = history.map(m => ({
         ...m,
         time: m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }).toLowerCase() : 'just now'
       }));
-      
+
       setMessages(formattedHistory);
       setLoading(false);
     };
@@ -70,30 +73,49 @@ const ChatWindow = ({ chat }) => {
     if (!socket || !chat) return;
 
     const handleReceivePrivate = (data) => {
-      if (!isGroup && (data.senderEmail === chat.email || data.senderUid === chat.id)) {
+      console.log("[Socket] Received Private:", data);
+      const incomingEmail = data.senderEmail?.toLowerCase();
+      const currentChatEmail = chat.email?.toLowerCase();
+      const incomingUid = data.senderUid || data.senderId;
+      const currentChatId = chat.uid || chat.id;
+
+      if (!isGroup && (incomingEmail === currentChatEmail || incomingUid === currentChatId)) {
         addLiveMessage(data);
       }
     };
 
     const handleReceiveGroup = (data) => {
-      if (isGroup && data.groupId === chat.id) {
+      console.log("[Socket] Received Group:", data);
+      if (isGroup && String(data.groupId) === String(chat.id)) {
         addLiveMessage(data);
       }
     };
 
     const addLiveMessage = (data) => {
+      console.log("[Socket] Processing live message:", data);
       const newMessage = {
         id: data.id || `live-${Date.now()}`,
         text: data.text,
+        imageUrl: data.imageUrl,
         senderId: data.senderId || data.senderUid,
         senderName: data.senderName,
-        timestamp: data.timestamp,
-        time: new Date(data.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }).toLowerCase()
+        timestamp: data.timestamp || Date.now(),
+        time: new Date(data.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }).toLowerCase()
       };
-      
+
       setMessages(prev => {
-        const exists = prev.some(m => (m.id === newMessage.id) || (m.text === newMessage.text && Math.abs(m.timestamp - newMessage.timestamp) < 2000 && m.senderId === newMessage.senderId));
-        if (exists) return prev;
+        // More robust duplicate detection (checking both text and imageUrl)
+        const exists = prev.some(m => 
+          (m.id === newMessage.id) || 
+          (m.text === newMessage.text && 
+           m.imageUrl === newMessage.imageUrl && 
+           Math.abs(m.timestamp - newMessage.timestamp) < 2000 && 
+           m.senderId === newMessage.senderId)
+        );
+        if (exists) {
+          console.log("[Socket] Duplicate detected, skipping.");
+          return prev;
+        }
         return [...prev, newMessage].sort((a, b) => a.timestamp - b.timestamp);
       });
     };
@@ -105,7 +127,7 @@ const ChatWindow = ({ chat }) => {
     socket.on('receive_message', handleReceivePrivate);
     socket.on('receive_group_message', handleReceiveGroup);
     socket.on('message_deleted', handleMessageDeleted);
-    
+
     return () => {
       socket.off('receive_message', handleReceivePrivate);
       socket.off('receive_group_message', handleReceiveGroup);
@@ -113,28 +135,32 @@ const ChatWindow = ({ chat }) => {
     };
   }, [socket, chat, isGroup]);
 
-  const handleSend = async () => {
-    if (!msg.trim() || !socket) return;
+  const handleSend = async (imageOverrideUrl = null) => {
+    if ((!msg.trim() && !imageOverrideUrl) || !socket) return;
 
     const timestamp = Date.now();
-    
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+
+    const payload = {
+      text: msg,
+      imageUrl: imageOverrideUrl,
+      senderEmail: user.email.toLowerCase(),
+      senderName: user.name,
+      senderUid: user.firebaseUID,
+      timestamp
+    };
+
     if (isGroup) {
       socket.emit('send_group_message', {
         groupId: chat.id,
-        text: msg,
-        senderUid: user.firebaseUID,
-        senderName: user.name
+        ...payload
       });
     } else {
       socket.emit('send_message', {
         to: chat.email.toLowerCase(),
-        text: msg,
-        senderEmail: user.email.toLowerCase(),
-        senderName: user.name,
-        senderUid: user.firebaseUID,
         targetUid: chat.uid || chat.id,
         targetName: chat.name,
-        timestamp
+        ...payload
       });
     }
 
@@ -142,13 +168,55 @@ const ChatWindow = ({ chat }) => {
     setMessages(prev => [...prev, {
       id: `temp-${Date.now()}`,
       text: msg,
+      imageUrl: imageOverrideUrl,
       senderId: user.firebaseUID,
       senderName: user.name,
       timestamp,
       time: new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }).toLowerCase()
     }]);
-    
+
     setMsg('');
+  };
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Check file size (e.g., 5MB limit)
+    if (file.size > 5 * 1024 * 1024) {
+      alert("File is too large. Max 5MB allowed.");
+      return;
+    }
+
+    setIsUploading(true);
+    const formData = new FormData();
+    formData.append('image', file);
+
+    try {
+      const idToken = await auth.currentUser.getIdToken();
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+      
+      const response = await fetch(`${API_URL}/upload`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${idToken}`
+        },
+        body: formData
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        handleSend(data.url);
+      } else {
+        alert("Upload failed: " + (data.error || "Unknown error"));
+      }
+    } catch (error) {
+      console.error("Upload error:", error);
+      alert("Failed to upload image.");
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   };
 
   const handleDeleteForMe = async (messageId) => {
@@ -191,7 +259,7 @@ const ChatWindow = ({ chat }) => {
     }
   };
 
-  const displayedMessages = messages.filter(m => 
+  const displayedMessages = messages.filter(m =>
     !searchQuery.trim() || m.text?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -199,9 +267,9 @@ const ChatWindow = ({ chat }) => {
     <div className="chat-window">
       <div className="chat-header">
         <div className="header-left">
-          <img 
-            src={chat.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${chat.name || 'Chat'}`} 
-            alt={chat.name} 
+          <img
+            src={chat.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${chat.name || 'Chat'}`}
+            alt={chat.name}
             className="header-avatar"
             style={{ cursor: 'pointer' }}
             onClick={() => isGroup ? setShowGroupInfo(true) : setShowChatInfo(true)}
@@ -214,12 +282,12 @@ const ChatWindow = ({ chat }) => {
         </div>
         <div className="header-right" style={{ position: 'relative' }}>
           <button className={`icon-btn ${showSearch ? 'active' : ''}`} onClick={() => setShowSearch(!showSearch)} title="Search Messages">
-            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></svg>
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" /></svg>
           </button>
-          
+
           <div ref={dropdownRef} style={{ display: 'inline-block' }}>
             <button className="icon-btn" onClick={() => setShowDropdown(!showDropdown)} title="Menu">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" /></svg>
             </button>
             {showDropdown && (
               <div style={{ position: 'absolute', top: '100%', right: '0', background: 'var(--bg)', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.5)', zIndex: 100, minWidth: '160px', overflow: 'hidden', border: '1px solid var(--border)' }}>
@@ -242,9 +310,9 @@ const ChatWindow = ({ chat }) => {
 
       {showSearch && (
         <div style={{ padding: '10px 20px', background: 'var(--search-bg)', borderBottom: '1px solid var(--border)' }}>
-          <input 
-            type="text" 
-            placeholder="Search messages..." 
+          <input
+            type="text"
+            placeholder="Search messages..."
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
             style={{ width: '100%', padding: '10px 14px', borderRadius: '6px', background: 'var(--bg)', color: 'white', border: '1px solid var(--border)' }}
@@ -268,15 +336,15 @@ const ChatWindow = ({ chat }) => {
                       {m.senderName}
                     </div>
                   )}
-                  
-                  <button 
-                    className="message-dropdown-trigger" 
+
+                  <button
+                    className="message-dropdown-trigger"
                     onClick={(e) => {
                       e.stopPropagation();
                       setActiveMsgId(activeMsgId === m.id ? null : m.id);
                     }}
                   >
-                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M7 10l5 5 5-5z" /></svg>
                   </button>
 
                   {activeMsgId === m.id && (
@@ -288,12 +356,22 @@ const ChatWindow = ({ chat }) => {
                     </div>
                   )}
 
-                  <p>{m.text}</p>
+                  {m.imageUrl && (
+                    <div className="message-image-container" style={{ marginBottom: '8px' }}>
+                      <img 
+                        src={m.imageUrl} 
+                        alt="Shared" 
+                        style={{ maxWidth: '100%', borderRadius: '8px', cursor: 'pointer', display: 'block' }} 
+                        onClick={() => window.open(m.imageUrl, '_blank')}
+                      />
+                    </div>
+                  )}
+                  {m.text && <p>{m.text}</p>}
                   <div className="message-status">
                     <span className="message-time">{m.time}</span>
                     {m.senderId === user.firebaseUID && (
                       <span className="read-receipt">
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="#53bdeb"><path d="M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM1 12l1.41-1.41L7.4 15.58 6 17 1 12z"/></svg>
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="#53bdeb"><path d="M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM1 12l1.41-1.41L7.4 15.58 6 17 1 12z" /></svg>
                       </span>
                     )}
                   </div>
@@ -308,13 +386,24 @@ const ChatWindow = ({ chat }) => {
       </div>
 
       <div className="input-area">
-        <button className="icon-btn">
-          <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+        <input 
+          type="file" 
+          ref={fileInputRef} 
+          hidden 
+          accept="image/*" 
+          onChange={handleFileChange} 
+        />
+        <button className="icon-btn" onClick={() => fileInputRef.current.click()} disabled={isUploading}>
+          {isUploading ? (
+            <div className="upload-spinner" style={{ width: '20px', height: '20px', border: '2px solid var(--accent)', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+          ) : (
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>
+          )}
         </button>
         <div className="msg-input-wrapper">
-          <input 
-            type="text" 
-            placeholder="Type a message" 
+          <input
+            type="text"
+            placeholder="Type a message"
             value={msg}
             onChange={(e) => setMsg(e.target.value)}
             onKeyPress={handleKeyPress}
@@ -322,11 +411,11 @@ const ChatWindow = ({ chat }) => {
         </div>
         {msg ? (
           <button className="icon-btn send-btn" onClick={handleSend}>
-            <svg viewBox="0 0 24 24" width="24" height="24" fill="var(--accent)"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="var(--accent)"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" /></svg>
           </button>
         ) : (
           <button className="icon-btn">
-            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" /><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" /></svg>
           </button>
         )}
       </div>
