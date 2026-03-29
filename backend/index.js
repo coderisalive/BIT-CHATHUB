@@ -14,13 +14,26 @@ const server = http.createServer(app);
 
 // 1. GLOBAL MIDDLEWARE (Set early to catch all requests)
 app.use(cors({
-  origin: [
-    "http://localhost:5173",
-    "http://localhost:5174",
-    "http://localhost:5175",
-    "https://bit-chathub.vercel.app",
-    "https://bit-chathub.onrender.com" // Backend itself (for health checks if needed)
-  ],
+  origin: (origin, callback) => {
+    // 1. ALLOWED ORIGINS (Direct strings + Regex for Vercel Previews)
+    const allowedPatterns = [
+      /^http:\/\/localhost:\d+$/,
+      /^https:\/\/bit-chathub\.vercel\.app$/,
+      /^https:\/\/bit-chathub-.*\.vercel\.app$/, // Allow all Vercel Previews
+      /^https:\/\/bit-chathub\.onrender\.com$/
+    ];
+
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin) return callback(null, true);
+
+    const isAllowed = allowedPatterns.some(pattern => pattern.test(origin));
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      console.warn(`[CORS] Rejected Origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   credentials: true
 }));
@@ -30,12 +43,21 @@ app.use(express.json());
 // 2. SOCKET INITIALIZATION
 const io = new Server(server, {
   cors: {
-    origin: [
-      "http://localhost:5173",
-      "http://localhost:5174",
-      "http://localhost:5175",
-      "https://bit-chathub.vercel.app"
-    ],
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true);
+      const allowedPatterns = [
+        /^http:\/\/localhost:\d+$/,
+        /^https:\/\/bit-chathub\.vercel\.app$/,
+        /^https:\/\/bit-chathub-.*\.vercel\.app$/,
+        /^https:\/\/bit-chathub\.onrender\.com$/
+      ];
+      const isAllowed = allowedPatterns.some(pattern => pattern.test(origin));
+      if (isAllowed) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by Socket CORS'));
+      }
+    },
     methods: ["GET", "POST"],
     credentials: true
   }
