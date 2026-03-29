@@ -25,7 +25,6 @@ app.use(cors({
   credentials: true
 }));
 
-app.options('*', cors()); // Enable pre-flight for all routes
 app.use(express.json());
 
 // 2. SOCKET INITIALIZATION
@@ -214,8 +213,8 @@ io.on('connection', (socket) => {
   });
 });
 
-// (Middleware removed from here - moved to top)
-app.use(express.json());
+// (Redundant middleware removed)
+
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -414,9 +413,8 @@ app.post('/api/messages/reset-unread', async (req, res) => {
   }
 });
 
-app.get('/', (req, res) => {
-  res.send('BIT CHAT API with Socket.io is running...');
-});
+// (Duplicate route removed - handled at top)
+
 
 // Initialize background jobs
 const initCleanupJob = require('./src/jobs/cleanupJob');
