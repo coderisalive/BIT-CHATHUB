@@ -128,17 +128,26 @@ const ChatWindow = ({ chat }) => {
       });
     };
 
+    const handleMessageSuccess = (data) => {
+      console.log("[Socket] Persistence success:", data);
+      setMessages(prev => prev.map(m => 
+        m.id === data.tempId ? { ...m, id: data.realId } : m
+      ));
+    };
+
     const handleMessageDeleted = (data) => {
       setMessages(prev => prev.filter(m => m.id !== data.messageId));
     };
 
     socket.on('receive_message', handleReceivePrivate);
     socket.on('receive_group_message', handleReceiveGroup);
+    socket.on('message_persistence_success', handleMessageSuccess);
     socket.on('message_deleted', handleMessageDeleted);
 
     return () => {
       socket.off('receive_message', handleReceivePrivate);
       socket.off('receive_group_message', handleReceiveGroup);
+      socket.off('message_persistence_success', handleMessageSuccess);
       socket.off('message_deleted', handleMessageDeleted);
     };
   }, [socket, chat, isGroup]);
@@ -147,9 +156,11 @@ const ChatWindow = ({ chat }) => {
     if ((!msg.trim() && !imageOverrideUrl && !audioOverrideUrl) || !socket) return;
 
     const timestamp = Date.now();
+    const tempId = `temp-${timestamp}`;
     const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
     const payload = {
+      tempId,
       text: msg,
       imageUrl: imageOverrideUrl,
       audioUrl: audioOverrideUrl,
@@ -175,7 +186,7 @@ const ChatWindow = ({ chat }) => {
 
     // Immediate UI Update for Sender
     setMessages(prev => [...prev, {
-      id: `temp-${Date.now()}`,
+      id: tempId,
       text: msg,
       imageUrl: imageOverrideUrl,
       audioUrl: audioOverrideUrl,

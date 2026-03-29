@@ -47,17 +47,7 @@ io.on('connection', (socket) => {
     if (imageUrl) console.log(`[Socket] imageUrl detected: ${imageUrl}`);
     if (audioUrl) console.log(`[Socket] audioUrl detected: ${audioUrl}`);
 
-    // 1. Relay to recipient (Live)
-    io.to(normalizedTo).emit('receive_message', {
-      text,
-      imageUrl,
-      audioUrl,
-      senderEmail: normalizedFrom,
-      senderName,
-      senderUid,
-      timestamp: Date.now()
-    });
-
+    // Relay part moved AFTER persistence to include the real ID
     // 2. Persist to Realtime Database (History)
     try {
       console.log(`[Firebase] Persisting message to ${normalizedFrom} <-> ${normalizedTo}. Image: ${!!imageUrl}, Audio: ${!!audioUrl}`);
@@ -66,13 +56,33 @@ io.on('connection', (socket) => {
       const chatId = getChatId(senderUid, targetUid);
 
       const messagesRef = adminDb.ref(`messages/${chatId}`);
-      await messagesRef.push({
+      const newMsgRef = await messagesRef.push({
         senderId: senderUid,
         text,
         imageUrl: imageUrl || null,
         audioUrl: audioUrl || null,
         timestamp: Date.now(),
         sent: true
+      });
+
+      const realId = newMsgRef.key;
+
+      // 1.5 Notify sender of the real ID for their temp snippet
+      socket.emit('message_persistence_success', {
+        tempId: data.tempId,
+        realId
+      });
+
+      // Relay to recipient with real ID
+      io.to(normalizedTo).emit('receive_message', {
+        id: realId,
+        text,
+        imageUrl,
+        audioUrl,
+        senderEmail: normalizedFrom,
+        senderName,
+        senderUid,
+        timestamp: Date.now()
       });
       console.log(`[Socket] Message persisted to DB for chat: ${chatId}`);
 
@@ -131,10 +141,18 @@ io.on('connection', (socket) => {
 
     try {
       // 1. Persist to groupMessages
-      await adminDb.ref(`groupMessages/${groupId}`).push(messageData);
+      const newMsgRef = await adminDb.ref(`groupMessages/${groupId}`).push(messageData);
+      const realId = newMsgRef.key;
 
-      // 2. Broadcast to everyone in group room EXCEPT the sender
+      // 1.5 Notify sender
+      socket.emit('message_persistence_success', {
+        tempId: data.tempId,
+        realId
+      });
+
+      // 2. Broadcast to everyone in group room EXCEPT the sender (with real ID)
       socket.to(groupId).emit('receive_group_message', {
+        id: realId,
         groupId,
         ...messageData
       });
