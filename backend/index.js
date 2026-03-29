@@ -39,17 +39,19 @@ io.on('connection', (socket) => {
   });
 
   socket.on('send_message', async (data) => {
-    const { to, text, senderEmail, senderName, senderUid, targetUid, targetName, imageUrl } = data;
+    const { to, text, senderEmail, senderName, senderUid, targetUid, targetName, imageUrl, audioUrl } = data;
     const normalizedTo = to.toLowerCase();
     const normalizedFrom = senderEmail.toLowerCase();
 
     console.log(`[Socket] Message from ${normalizedFrom} to ${normalizedTo}`);
     if (imageUrl) console.log(`[Socket] imageUrl detected: ${imageUrl}`);
+    if (audioUrl) console.log(`[Socket] audioUrl detected: ${audioUrl}`);
 
     // 1. Relay to recipient (Live)
     io.to(normalizedTo).emit('receive_message', {
       text,
       imageUrl,
+      audioUrl,
       senderEmail: normalizedFrom,
       senderName,
       senderUid,
@@ -58,7 +60,7 @@ io.on('connection', (socket) => {
 
     // 2. Persist to Realtime Database (History)
     try {
-      console.log(`[Firebase] Persisting message to ${normalizedFrom} <-> ${normalizedTo}. Image: ${!!imageUrl}`);
+      console.log(`[Firebase] Persisting message to ${normalizedFrom} <-> ${normalizedTo}. Image: ${!!imageUrl}, Audio: ${!!audioUrl}`);
       const { admin: firebaseAdmin, db: adminDb } = require('./src/config/firebaseAdmin');
       const getChatId = (u1, u2) => u1 < u2 ? `${u1}_${u2}` : `${u2}_${u1}`;
       const chatId = getChatId(senderUid, targetUid);
@@ -67,14 +69,15 @@ io.on('connection', (socket) => {
       await messagesRef.push({
         senderId: senderUid,
         text,
-        imageUrl,
+        imageUrl: imageUrl || null,
+        audioUrl: audioUrl || null,
         timestamp: Date.now(),
         sent: true
       });
       console.log(`[Socket] Message persisted to DB for chat: ${chatId}`);
 
       // 3. Auto-add/Update Sender in Recipient's Contacts
-      const lastMessageText = imageUrl ? '📷 Image' : text;
+      const lastMessageText = imageUrl ? '📷 Image' : (audioUrl ? '🎤 Voice Note' : text);
       const recipientContactsRef = adminDb.ref(`users/${targetUid}/contacts/${senderUid}`);
       await recipientContactsRef.update({
         uid: senderUid,
@@ -110,17 +113,19 @@ io.on('connection', (socket) => {
   });
 
   socket.on('send_group_message', async (data) => {
-    const { groupId, text, senderUid, senderName, imageUrl } = data;
+    const { groupId, text, senderUid, senderName, imageUrl, audioUrl } = data;
     const { admin: firebaseAdmin, db: adminDb } = require('./src/config/firebaseAdmin');
 
-    console.log(`[Socket] Group Message in ${groupId} from ${senderName}. Image: ${!!imageUrl}`);
+    console.log(`[Socket] Group Message in ${groupId} from ${senderName}. Image: ${!!imageUrl}, Audio: ${!!audioUrl}`);
     if (imageUrl) console.log(`[Socket] Group imageUrl: ${imageUrl}`);
+    if (audioUrl) console.log(`[Socket] Group audioUrl: ${audioUrl}`);
 
     const messageData = {
       senderId: senderUid,
       senderName,
       text,
-      imageUrl,
+      imageUrl: imageUrl || null,
+      audioUrl: audioUrl || null,
       timestamp: Date.now()
     };
 
@@ -135,7 +140,7 @@ io.on('connection', (socket) => {
       });
 
       // 3. Update last message for all members
-      const lastMessageText = imageUrl ? '📷 Image' : text;
+      const lastMessageText = imageUrl ? '📷 Image' : (audioUrl ? '🎤 Voice Note' : text);
       const groupSnap = await adminDb.ref(`groups/${groupId}`).get();
       const members = groupSnap.val()?.members || {};
       const updates = {};

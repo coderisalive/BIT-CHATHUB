@@ -27,7 +27,7 @@ const uploadImage = async (req, res) => {
     });
   } catch (error) {
     console.error('[Upload] ImageKit error:', error);
-    res.status(500).json({ error: 'Failed to upload image to ImageKit' });
+    res.status(500).json({ error: 'Failed to upload file to ImageKit' });
   }
 };
 

@@ -547,6 +547,44 @@ body {
   font-size: 15px;
 }
 
+/* Voice Recording UI */
+.recording-indicator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #ff6b6b;
+  font-weight: 500;
+  font-size: 14px;
+}
+
+.pulse-dot {
+  width: 10px;
+  height: 10px;
+  background-color: #ff6b6b;
+  border-radius: 50%;
+  animation: pulse-red 1.5s infinite;
+}
+
+@keyframes pulse-red {
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 107, 107, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(255, 107, 107, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 107, 107, 0); }
+}
+
+.message-audio-container audio {
+  filter: invert(100%) hue-rotate(180deg) brightness(1.5); /* Theme-friendly audio player */
+  height: 32px;
+  border-radius: 20px;
+}
+
+.received .message-audio-container audio {
+  filter: invert(100%) hue-rotate(180deg) brightness(1.2);
+}
+
+.sent .message-audio-container audio {
+  filter: none; /* Keep natural on dark background */
+}
+
 /* Home Placeholder */
 .home-placeholder {
   flex: 1;
