@@ -405,6 +405,10 @@ app.get('/', (req, res) => {
   res.send('BIT CHAT API with Socket.io is running...');
 });
 
+// Initialize background jobs
+const initCleanupJob = require('./src/jobs/cleanupJob');
+initCleanupJob();
+
 const PORT = process.env.PORT || 5001;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
