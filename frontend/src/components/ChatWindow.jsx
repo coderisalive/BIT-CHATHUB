@@ -5,7 +5,7 @@ import GroupInfoModal from './GroupInfoModal';
 import AddMemberModal from './AddMemberModal';
 import ChatInfoModal from './ChatInfoModal';
 
-const ChatWindow = ({ chat }) => {
+const ChatWindow = ({ chat, onBack }) => {
   const { user, getChatId, socket, getMessages, getGroupMessages, clearChatMessages, clearGroupMessages, deleteMessage } = useAuth();
   const [msg, setMsg] = useState('');
   const [messages, setMessages] = useState([]);
@@ -379,6 +379,9 @@ const ChatWindow = ({ chat }) => {
     <div className="chat-window">
       <div className="chat-header">
         <div className="header-left">
+          <button className="icon-btn mobile-back-btn" onClick={onBack} title="Back">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" /></svg>
+          </button>
           <img
             src={chat.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${chat.name || 'Chat'}`}
             alt={chat.name}

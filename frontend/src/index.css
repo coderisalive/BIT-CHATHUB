@@ -806,10 +806,62 @@ body {
   background: rgba(255, 255, 255, 0.05);
 }
 
-.message-options-menu button.delete-btn {
-  color: #ff6b6b;
+.delete-btn {
+  color: #ff6b6b !important;
 }
 
+/* Mobile Responsiveness */
+.mobile-back-btn {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    width: 100%;
+    min-width: 100%;
+    border-right: none;
+  }
+
+  .chat-window, .home-placeholder {
+    width: 100%;
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    z-index: 1000;
+  }
+
+  .main-layout:not(.has-selected-chat) .chat-window,
+  .main-layout:not(.has-selected-chat) .home-placeholder {
+    display: none;
+  }
+
+  .main-layout.has-selected-chat .sidebar {
+    display: none;
+  }
+
+  .mobile-back-btn {
+    display: flex;
+    margin-right: 8px;
+    padding: 8px;
+  }
+  
+  .header-left {
+    gap: 4px;
+  }
+
+  .message-area {
+    padding: 15px 12px;
+  }
+
+  .message-bubble {
+    max-width: 85%;
+  }
+
+  .input-area {
+    padding: 8px 12px;
+  }
+}
 
 @keyframes spin {
   from { transform: rotate(0deg); }

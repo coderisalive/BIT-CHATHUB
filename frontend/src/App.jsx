@@ -69,11 +69,11 @@ const ChatLayout = () => {
   }, [socket, selectedChat, user]);
 
   return (
-    <div className="main-layout">
+    <div className={`main-layout ${selectedChat ? 'has-selected-chat' : ''}`}>
       <Toaster position="top-right" reverseOrder={false} />
       <Sidebar onChatSelect={handleChatSelect} selectedChatId={selectedChat?.id} />
       {selectedChat ? (
-        <ChatWindow chat={selectedChat} />
+        <ChatWindow chat={selectedChat} onBack={() => setSelectedChat(null)} />
       ) : (
         <HomePlaceholder />
       )}
