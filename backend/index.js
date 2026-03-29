@@ -11,6 +11,24 @@ dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
+
+// 1. GLOBAL MIDDLEWARE (Set early to catch all requests)
+app.use(cors({
+  origin: [
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:5175",
+    "https://bit-chathub.vercel.app",
+    "https://bit-chathub.onrender.com" // Backend itself (for health checks if needed)
+  ],
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  credentials: true
+}));
+
+app.options('*', cors()); // Enable pre-flight for all routes
+app.use(express.json());
+
+// 2. SOCKET INITIALIZATION
 const io = new Server(server, {
   cors: {
     origin: [
@@ -19,8 +37,14 @@ const io = new Server(server, {
       "http://localhost:5175",
       "https://bit-chathub.vercel.app"
     ],
-    methods: ["GET", "POST"]
+    methods: ["GET", "POST"],
+    credentials: true
   }
+});
+
+// Health check for Render
+app.get('/', (req, res) => {
+  res.status(200).send('BIT CHAT Backend is Live');
 });
 
 // User to Socket mapping
@@ -190,18 +214,7 @@ io.on('connection', (socket) => {
   });
 });
 
-app.use(cors({
-  origin: [
-    "http://localhost:5173",
-    "http://localhost:5174",
-    "http://localhost:5175",
-    "https://bit-chathub.vercel.app"
-  ],
-  methods: ["GET", "POST", "PUT", "DELETE"],
-  credentials: true
-}));
-
-app.options(/.*/, cors());
+// (Middleware removed from here - moved to top)
 app.use(express.json());
 
 // Routes
