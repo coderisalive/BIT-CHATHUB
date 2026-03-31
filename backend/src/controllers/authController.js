@@ -51,20 +51,45 @@ const getMe = async (req, res) => {
 const updateProfile = async (req, res) => {
   try {
     const { uid } = req.user;
-    const { name, avatar } = req.body;
+    const { name, avatar, avatarFileId } = req.body;
 
     if (!name && !avatar) {
       return res.status(400).json({ message: 'Name or Avatar is required' });
     }
 
     const userRef = db.ref(`users/${uid}`);
+    
+    // Logic to delete old profile photo from ImageKit
+    if (avatarFileId) {
+      const snapshot = await userRef.get();
+      const userData = snapshot.val() || {};
+      const oldFileId = userData.avatarFileId;
+
+      if (oldFileId && oldFileId !== avatarFileId) {
+        try {
+          const imagekit = require('../config/imagekit');
+          await imagekit.deleteFile(oldFileId);
+          console.log(`[Cleanup] Deleted previous avatar ${oldFileId} from ImageKit.`);
+        } catch (delErr) {
+          console.error(`[Cleanup] Failed to delete old avatar ${oldFileId}:`, delErr.message);
+          // Don't fail the update if deletion fails (e.g. file already gone)
+        }
+      }
+    }
+
     const updates = {};
     if (name) updates.name = name;
     if (avatar) updates.avatar = avatar;
+    if (avatarFileId) updates.avatarFileId = avatarFileId;
 
     await userRef.update(updates);
 
-    res.status(200).json({ message: 'Profile updated successfully', name, avatar });
+    res.status(200).json({ 
+      message: 'Profile updated successfully', 
+      name: updates.name || null, 
+      avatar: updates.avatar || null,
+      avatarFileId: updates.avatarFileId || null
+    });
   } catch (error) {
     console.error('Update profile error:', error.message);
     res.status(500).json({ message: 'Server error updating profile' });

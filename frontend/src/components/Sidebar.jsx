@@ -131,16 +131,15 @@ const Sidebar = ({ onChatSelect, selectedChatId }) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Optional: add file size/type validation
     if (file.size > 2 * 1024 * 1024) {
       alert("Image is too large. Max 2MB allowed.");
       return;
     }
 
     setIsUploadingAvatar(true);
-    const imageUrl = await uploadProfilePicture(file);
-    if (imageUrl) {
-      const success = await updateProfile(null, imageUrl);
+    const result = await uploadProfilePicture(file);
+    if (result && result.url) {
+      const success = await updateProfile(null, result.url, result.fileId);
       if (!success) {
         alert("Failed to update profile picture in database.");
       }

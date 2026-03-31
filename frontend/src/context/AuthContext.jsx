@@ -78,12 +78,13 @@ export const AuthProvider = ({ children }) => {
     return signInWithEmailAndPassword(auth, email, password);
   };
 
-  const updateProfileInDB = async (newName, newAvatar = null) => {
+  const updateProfileInDB = async (newName, newAvatar = null, newAvatarFileId = null) => {
     try {
       const idToken = await auth.currentUser.getIdToken();
       const updates = {};
       if (newName) updates.name = newName;
       if (newAvatar) updates.avatar = newAvatar;
+      if (newAvatarFileId) updates.avatarFileId = newAvatarFileId;
 
       const res = await axios.put(`${API_URL}/users/profile`,
         updates,
@@ -93,14 +94,16 @@ export const AuthProvider = ({ children }) => {
       setUser(prev => ({ 
         ...prev, 
         name: res.data.name || prev.name,
-        avatar: res.data.avatar || prev.avatar 
+        avatar: res.data.avatar || prev.avatar,
+        avatarFileId: res.data.avatarFileId || prev.avatarFileId
       }));
 
       if (socket) {
         socket.emit('update_profile', { 
           uid: auth.currentUser.uid, 
           name: res.data.name || user?.name, 
-          avatar: res.data.avatar || user?.avatar 
+          avatar: res.data.avatar || user?.avatar,
+          avatarFileId: res.data.avatarFileId || user?.avatarFileId
         });
       }
 
@@ -117,8 +120,6 @@ export const AuthProvider = ({ children }) => {
       const formData = new FormData();
       formData.append('image', file);
 
-      // Using the same upload endpoint, but with a flag to indicate it's a profile pic 
-      // (Even if backend doesn't handle the flag yet, it's good practice)
       const res = await axios.post(`${API_URL}/upload?skipTrack=true`, formData, {
         headers: { 
           'Authorization': `Bearer ${idToken}`,
@@ -127,10 +128,7 @@ export const AuthProvider = ({ children }) => {
       });
 
       if (res.data.success) {
-        if (socket) {
-          socket.emit('update_profile', { uid: auth.currentUser.uid, name: user.name, avatar: res.data.url });
-        }
-        return res.data.url;
+        return { url: res.data.url, fileId: res.data.fileId };
       }
       return null;
     } catch (error) {
@@ -138,6 +136,7 @@ export const AuthProvider = ({ children }) => {
       return null;
     }
   };
+
 
   const getMessages = async (chatId) => {
     try {
