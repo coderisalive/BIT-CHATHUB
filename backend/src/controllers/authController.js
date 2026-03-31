@@ -51,16 +51,20 @@ const getMe = async (req, res) => {
 const updateProfile = async (req, res) => {
   try {
     const { uid } = req.user;
-    const { name } = req.body;
+    const { name, avatar } = req.body;
 
-    if (!name) {
-      return res.status(400).json({ message: 'Name is required' });
+    if (!name && !avatar) {
+      return res.status(400).json({ message: 'Name or Avatar is required' });
     }
 
     const userRef = db.ref(`users/${uid}`);
-    await userRef.update({ name });
+    const updates = {};
+    if (name) updates.name = name;
+    if (avatar) updates.avatar = avatar;
 
-    res.status(200).json({ message: 'Profile updated successfully', name });
+    await userRef.update(updates);
+
+    res.status(200).json({ message: 'Profile updated successfully', name, avatar });
   } catch (error) {
     console.error('Update profile error:', error.message);
     res.status(500).json({ message: 'Server error updating profile' });
@@ -141,13 +145,20 @@ const getContacts = async (req, res) => {
     const snapshot = await contactsRef.get();
     const contacts = snapshot.val() || {};
     
-    // Inject the key as 'uid' just in case it's missing from the object body
-    const contactsArray = Object.keys(contacts).map(key => ({
-      uid: key,
-      ...contacts[key]
+    // Fetch latest name/avatar from main users table for each contact
+    const contactUids = Object.keys(contacts);
+    const updatedContacts = await Promise.all(contactUids.map(async (cUid) => {
+      const userSnap = await db.ref(`users/${cUid}`).get();
+      const userData = userSnap.val() || {};
+      return {
+        uid: cUid,
+        ...contacts[cUid],
+        name: userData.name || contacts[cUid].name,
+        avatar: userData.avatar || contacts[cUid].avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userData.email || cUid}`
+      };
     }));
 
-    res.status(200).json(contactsArray);
+    res.status(200).json(updatedContacts);
   } catch (error) {
     console.error('Get contacts error:', error.message);
     res.status(500).json({ message: 'Server error fetching contacts' });

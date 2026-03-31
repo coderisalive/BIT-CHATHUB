@@ -5,7 +5,7 @@ import { ref, onValue } from 'firebase/database';
 import CreateGroupModal from './CreateGroupModal';
 
 const Sidebar = ({ onChatSelect, selectedChatId }) => {
-  const { user, logout, updateProfile, searchUsers, getContacts, addContact, removeContact, createGroup, getGroups } = useAuth();
+  const { user, logout, updateProfile, uploadProfilePicture, searchUsers, getContacts, addContact, removeContact, createGroup, getGroups } = useAuth();
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
   const [showProfile, setShowProfile] = useState(false);
@@ -16,8 +16,10 @@ const Sidebar = ({ onChatSelect, selectedChatId }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [allChats, setAllChats] = useState([]);
   const [profileModalChat, setProfileModalChat] = useState(null);
+  const fileInputRef = React.useRef(null);
 
   // Load persistent contacts + Groups with Real-time Listener + Socket Fallback
   React.useEffect(() => {
@@ -76,10 +78,21 @@ const Sidebar = ({ onChatSelect, selectedChatId }) => {
       loadFromApi();
     });
 
-    // 3. Socket Fallback
+    const handleProfileUpdate = (data) => {
+      console.log('[Sidebar] Profile Update detected:', data);
+      setAllChats(prev => prev.map(chat => {
+        if (chat.uid === data.uid || chat.id === data.uid) {
+          return { ...chat, name: data.name || chat.name, avatar: data.avatar || chat.avatar };
+        }
+        return chat;
+      }));
+    };
+
+    // 3. Socket Fallback & Updates
     if (window.socket) {
       window.socket.on('contacts_updated', loadFromApi);
       window.socket.on('groups_updated', loadFromApi);
+      window.socket.on('profile_updated', handleProfileUpdate);
     }
 
     loadFromApi();
@@ -90,6 +103,7 @@ const Sidebar = ({ onChatSelect, selectedChatId }) => {
       if (window.socket) {
         window.socket.off('contacts_updated', loadFromApi);
         window.socket.off('groups_updated', loadFromApi);
+        window.socket.off('profile_updated', handleProfileUpdate);
       }
     };
   }, [user]);
@@ -111,6 +125,29 @@ const Sidebar = ({ onChatSelect, selectedChatId }) => {
     if (success) {
       setIsEditingName(false);
     }
+  };
+
+  const handleAvatarChange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Optional: add file size/type validation
+    if (file.size > 2 * 1024 * 1024) {
+      alert("Image is too large. Max 2MB allowed.");
+      return;
+    }
+
+    setIsUploadingAvatar(true);
+    const imageUrl = await uploadProfilePicture(file);
+    if (imageUrl) {
+      const success = await updateProfile(null, imageUrl);
+      if (!success) {
+        alert("Failed to update profile picture in database.");
+      }
+    } else {
+      alert("Failed to upload image.");
+    }
+    setIsUploadingAvatar(false);
   };
 
   const handleUserSearch = async () => {
@@ -191,8 +228,22 @@ const Sidebar = ({ onChatSelect, selectedChatId }) => {
         </div>
 
         <div className="profile-content">
-          <div className="profile-picture-container">
+          <div className="profile-picture-container" onClick={() => fileInputRef.current?.click()}>
             <img src={user?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user?.name || 'User'}`} alt="Avatar" />
+            <div className="avatar-overlay">
+              {isUploadingAvatar ? (
+                <div className="upload-spinner-small"></div>
+              ) : (
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="white"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/><circle cx="18" cy="18" r="3" fill="var(--accent)"/><path d="M18 16v4m-2-2h4" stroke="white" strokeWidth="2" strokeLinecap="round"/></svg>
+              )}
+            </div>
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              hidden 
+              accept="image/*" 
+              onChange={handleAvatarChange} 
+            />
           </div>
 
           <div className="profile-info-section">

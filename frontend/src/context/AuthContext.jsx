@@ -70,7 +70,7 @@ export const AuthProvider = ({ children }) => {
 
   const signup = async (email, password, name) => {
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    await updateProfile(userCredential.user, { displayName: name });
+    await updateFirebaseProfile(userCredential.user, { displayName: name });
     return userCredential.user;
   };
 
@@ -78,18 +78,64 @@ export const AuthProvider = ({ children }) => {
     return signInWithEmailAndPassword(auth, email, password);
   };
 
-  const updateProfileInDB = async (newName) => {
+  const updateProfileInDB = async (newName, newAvatar = null) => {
     try {
       const idToken = await auth.currentUser.getIdToken();
+      const updates = {};
+      if (newName) updates.name = newName;
+      if (newAvatar) updates.avatar = newAvatar;
+
       const res = await axios.put(`${API_URL}/users/profile`,
-        { name: newName },
+        updates,
         { headers: { Authorization: `Bearer ${idToken}` } }
       );
-      setUser(prev => ({ ...prev, name: res.data.name }));
+      
+      setUser(prev => ({ 
+        ...prev, 
+        name: res.data.name || prev.name,
+        avatar: res.data.avatar || prev.avatar 
+      }));
+
+      if (socket) {
+        socket.emit('update_profile', { 
+          uid: auth.currentUser.uid, 
+          name: res.data.name || user?.name, 
+          avatar: res.data.avatar || user?.avatar 
+        });
+      }
+
       return true;
     } catch (error) {
       console.error('Update profile error:', error);
       return false;
+    }
+  };
+
+  const uploadProfilePicture = async (file) => {
+    try {
+      const idToken = await auth.currentUser.getIdToken();
+      const formData = new FormData();
+      formData.append('image', file);
+
+      // Using the same upload endpoint, but with a flag to indicate it's a profile pic 
+      // (Even if backend doesn't handle the flag yet, it's good practice)
+      const res = await axios.post(`${API_URL}/upload?skipTrack=true`, formData, {
+        headers: { 
+          'Authorization': `Bearer ${idToken}`,
+          'Content-Type': 'multipart/form-data'
+        }
+      });
+
+      if (res.data.success) {
+        if (socket) {
+          socket.emit('update_profile', { uid: auth.currentUser.uid, name: user.name, avatar: res.data.url });
+        }
+        return res.data.url;
+      }
+      return null;
+    } catch (error) {
+      console.error('Upload profile picture error:', error);
+      return null;
     }
   };
 
@@ -286,6 +332,7 @@ export const AuthProvider = ({ children }) => {
     login,
     logout,
     updateProfile: updateProfileInDB,
+    uploadProfilePicture,
     searchUsers,
     getContacts,
     addContact,

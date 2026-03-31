@@ -134,10 +134,14 @@ io.on('connection', (socket) => {
       // 3. Auto-add/Update Sender in Recipient's Contacts
       const lastMessageText = imageUrl ? '📷 Image' : (audioUrl ? '🎤 Voice Note' : text);
       const recipientContactsRef = adminDb.ref(`users/${targetUid}/contacts/${senderUid}`);
+      const senderSnap = await adminDb.ref(`users/${senderUid}`).get();
+      const senderData = senderSnap.val() || {};
+
       await recipientContactsRef.update({
         uid: senderUid,
         firebaseUID: senderUid,
         name: senderName,
+        avatar: senderData.avatar || null,
         lastMessage: lastMessageText,
         lastMessageTime: Date.now(),
         unread: firebaseAdmin.database.ServerValue.increment(1)
@@ -223,6 +227,12 @@ io.on('connection', (socket) => {
     } catch (err) {
       console.error('[Socket] Group message error:', err);
     }
+  });
+
+  socket.on('update_profile', (data) => {
+    const { uid, name, avatar } = data;
+    console.log(`[Socket] Profile updated broadcast for UID: ${uid}`);
+    io.emit('profile_updated', { uid, name, avatar });
   });
 
   socket.on('disconnect', () => {
