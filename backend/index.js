@@ -265,7 +265,7 @@ io.on('connection', (socket) => {
       
       const newMsgRef = await adminDb.ref(`messages/${chatId}`).push({
         senderId: senderUid,
-        text: `🎮 Join my Tic-Tac-Toe game!`,
+        text: gameType === 'tictactoe' ? `🎮 Join my Tic-Tac-Toe game!` : `🔢 Guess my secret number!`,
         type: 'game',
         gameId: game.gameId,
         timestamp: Date.now(),
@@ -278,7 +278,7 @@ io.on('connection', (socket) => {
 
       const messageData = {
         id: realId,
-        text: `🎮 Join my Tic-Tac-Toe game!`,
+        text: gameType === 'tictactoe' ? `🎮 Join my Tic-Tac-Toe game!` : `🔢 Guess my secret number!`,
         type: 'game',
         gameId: game.gameId,
         senderEmail: normalizedFrom,
@@ -303,7 +303,59 @@ io.on('connection', (socket) => {
     if (game) {
       console.log(`[Game] Player ${playerId} joined game: ${gameId}`);
       socket.join(`game_${gameId}`);
-      io.to(`game_${gameId}`).emit('game_update', game);
+      
+      // If Number Guess, hide the target number from the guesser
+      const isPicker = game.players[0] === playerId;
+      const safeGame = (game.gameType === 'numberguess' && !isPicker && game.status !== 'finished') 
+        ? { ...game, targetNumber: null } 
+        : game;
+
+      socket.emit('game_update', safeGame);
+    }
+  });
+
+  socket.on('set_target_number', async (data) => {
+    const { gameId, value, playerId } = data;
+    const { game, error } = gameService.setTargetNumber(gameId, playerId, value);
+    if (error) {
+      socket.emit('game_error', { error });
+      return;
+    }
+
+    // Inform everyone in the room that the game has started, but keep the number secret
+    const pickerId = game.players[0];
+    const guesserId = game.players[1];
+
+    // Get all sockets in the game room
+    const sockets = await io.in(`game_${gameId}`).fetchSockets();
+    sockets.forEach(s => {
+      // If the socket belongs to the picker, send full game (including targetNumber)
+      // Otherwise, hide it.
+      const isPicker = s.handshake.query.uid === pickerId;
+      const safeGame = (game.status !== 'finished' && !isPicker) ? { ...game, targetNumber: null } : game;
+      s.emit('game_update', safeGame);
+    });
+  });
+
+  socket.on('make_guess', async (data) => {
+    const { gameId, value, playerId } = data;
+    const { game, result, error } = gameService.makeGuess(gameId, playerId, value);
+    if (error) {
+      socket.emit('game_error', { error });
+      return;
+    }
+
+    const pickerId = game.players[0];
+    const sockets = await io.in(`game_${gameId}`).fetchSockets();
+    
+    sockets.forEach(s => {
+      const isPicker = s.handshake.query.uid === pickerId;
+      const safeGame = (game.status !== 'finished' && !isPicker) ? { ...game, targetNumber: null } : game;
+      s.emit('game_update', safeGame);
+    });
+
+    if (result === 'correct') {
+      console.log(`[Game] ${playerId} guessed correctly: ${value}`);
     }
   });
 

@@ -1143,6 +1143,52 @@ body {
   background: rgba(255, 255, 255, 0.2);
 }
 
+.game-select-menu {
+  position: absolute;
+  bottom: 50px;
+  left: 0;
+  background: rgba(30, 40, 50, 0.95);
+  backdrop-filter: blur(15px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 1000;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  min-width: 160px;
+  animation: slideUp 0.2s ease-out;
+}
+
+.game-select-menu button {
+  background: transparent;
+  border: none;
+  color: white;
+  padding: 10px 16px;
+  text-align: left;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.game-select-menu button:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.game-select-menu span {
+  font-size: 18px;
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .view-once-indicator {
   margin-left: 8px;
   width: 18px;
@@ -1156,6 +1202,134 @@ body {
   font-size: 11px;
   opacity: 0.7;
   flex-shrink: 0;
+}
+
+/* Number Guess Game Styles */
+.number-guess-container {
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: white;
+  text-align: center;
+  width: 100%;
+  max-width: 400px;
+  margin: 10px 0;
+}
+
+.game-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.attempts-badge {
+  background: var(--accent);
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.game-input-group {
+  display: flex;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.game-input-group input {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  padding: 10px;
+  color: white;
+  font-size: 18px;
+  text-align: center;
+}
+
+.game-btn-primary {
+  background: var(--accent);
+  border: none;
+  border-radius: 10px;
+  padding: 10px 20px;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.game-btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(0, 168, 132, 0.4);
+}
+
+.guess-history {
+  margin-top: 25px;
+  max-height: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-right: 5px;
+}
+
+.guess-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 15px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  animation: slideIn 0.3s ease-out;
+}
+
+.guess-item.high { border-left: 4px solid #ff4b2b; }
+.guess-item.low { border-left: 4px solid #3c8ce7; }
+.guess-item.correct { border-left: 4px solid #00a884; background: rgba(0, 168, 132, 0.2); }
+
+.guess-val { font-weight: 700; font-size: 18px; }
+
+.game-over-view {
+  padding: 20px;
+  border-radius: 15px;
+  margin-top: 10px;
+}
+
+.game-over-view.winner { background: rgba(0, 168, 132, 0.1); border: 1px solid #00a884; }
+.game-over-view.loser { background: rgba(255, 75, 43, 0.1); border: 1px solid #ff4b2b; }
+
+.game-btn-secondary {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 10px;
+  padding: 10px 20px;
+  color: white;
+  margin-top: 15px;
+  cursor: pointer;
+}
+
+.game-error-msg { color: #ff4b2b; font-size: 13px; margin-top: 10px; }
+
+.game-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  border-top: 3px solid var(--accent);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin: 20px auto;
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
 .message-text {

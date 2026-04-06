@@ -5,6 +5,7 @@ import GroupInfoModal from './GroupInfoModal';
 import AddMemberModal from './AddMemberModal';
 import ChatInfoModal from './ChatInfoModal';
 import TicTacToe from './TicTacToe';
+import NumberGuess from './NumberGuess';
 
 const ChatWindow = ({ chat, onBack }) => {
   const { user, getChatId, socket, getMessages, getGroupMessages, clearChatMessages, clearGroupMessages, deleteMessage } = useAuth();
@@ -15,6 +16,7 @@ const ChatWindow = ({ chat, onBack }) => {
   const [viewingPhoto, setViewingPhoto] = useState(null); // { url, id, isGroup, chatId }
 
   const [showSearch, setShowSearch] = useState(false);
+  const [showGameMenu, setShowGameMenu] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const [activeMsgId, setActiveMsgId] = useState(null);
@@ -255,7 +257,7 @@ const ChatWindow = ({ chat, onBack }) => {
     setSendViewOnce(false); // Reset after sending
   };
 
-  const handleStartGame = () => {
+  const handleStartGame = (gameType = 'tictactoe') => {
     if (!socket || isGroup) return;
     socket.emit('create_game', {
       to: chat.email.toLowerCase(),
@@ -263,8 +265,9 @@ const ChatWindow = ({ chat, onBack }) => {
       senderUid: user.firebaseUID,
       senderName: user.name,
       senderEmail: user.email,
-      gameType: 'tictactoe'
+      gameType
     });
+    setShowGameMenu(false);
   };
 
   const markRead = () => {
@@ -657,11 +660,18 @@ const ChatWindow = ({ chat, onBack }) => {
                       )}
                     </div>
                   )}
-                  {m.type === 'game' && (
+                  {m.type === 'game' && m.text.includes('Tic-Tac-Toe') && (
                     <TicTacToe 
                       gameId={m.gameId} 
                       socket={socket} 
                       currentUserId={user.firebaseUID} 
+                    />
+                  )}
+                  {m.type === 'game' && m.text.includes('secret number') && (
+                    <NumberGuess 
+                      gameId={m.gameId} 
+                      socket={socket} 
+                      onGameEnd={() => {}} 
                     />
                   )}
                   <div className="message-status">
@@ -700,11 +710,24 @@ const ChatWindow = ({ chat, onBack }) => {
             <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>
           )}
         </button>
-        {!isGroup && (
-          <button className="icon-btn" onClick={handleStartGame} title="Start Tic-Tac-Toe">
-            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M21 6H3c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-10 7H8v3H6v-3H3v-2h3V8h2v3h3v2zm4.5 2c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm4-3c-.83 0-1.5-.67-1.5-1.5S18.67 9 19.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>
-          </button>
-        )}
+         <div style={{ position: 'relative' }}>
+          {!isGroup && (
+            <button className={`icon-btn ${showGameMenu ? 'active' : ''}`} onClick={() => setShowGameMenu(!showGameMenu)} title="Play a Game">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M21 6H3c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-10 7H8v3H6v-3H3v-2h3V8h2v3h3v2zm4.5 2c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm4-3c-.83 0-1.5-.67-1.5-1.5S18.67 9 19.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>
+            </button>
+          )}
+
+          {showGameMenu && (
+            <div className="game-select-menu">
+              <button onClick={() => handleStartGame('tictactoe')}>
+                <span>🎮</span> Tic-Tac-Toe
+              </button>
+              <button onClick={() => handleStartGame('numberguess')}>
+                <span>🔢</span> Number Guess
+              </button>
+            </div>
+          )}
+        </div>
 
         <button 
           className={`icon-btn view-once-toggle ${sendViewOnce ? 'active' : ''}`} 

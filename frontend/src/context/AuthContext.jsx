@@ -24,7 +24,9 @@ export const AuthProvider = ({ children }) => {
 
   useEffect(() => {
     if (user && user.email) {
-      const newSocket = io(SOCKET_URL);
+      const newSocket = io(SOCKET_URL, {
+        query: { uid: user.uid || user.firebaseUID }
+      });
       newSocket.on('connect', () => {
         console.log('[Socket] Connected to server');
         newSocket.emit('join', user.email.toLowerCase());

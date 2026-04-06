@@ -11,7 +11,11 @@ class GameService {
       gameId,
       gameType,
       players: [player1Id, player2Id],
-      board: Array(9).fill(""),
+      board: gameType === 'tictactoe' ? Array(9).fill("") : null,
+      targetNumber: null, // for numberguess
+      guesses: [],
+      maxAttempts: 10,
+      attempts: 0,
       currentTurn: player1Id,
       winner: null,
       status: "waiting",
@@ -31,7 +35,9 @@ class GameService {
     if (!game) return null;
     
     if (game.players.includes(playerId)) {
-      game.status = "playing";
+      if (game.gameType === 'tictactoe') {
+        game.status = "playing";
+      }
       return game;
     }
     return null;
@@ -59,6 +65,46 @@ class GameService {
     }
 
     return { game };
+  }
+
+  setTargetNumber(gameId, playerId, value) {
+    const game = this.games.get(gameId);
+    if (!game || game.gameType !== 'numberguess') return { error: "Invalid game" };
+    if (game.players[0] !== playerId) return { error: "Only the picker can set the number" };
+    
+    game.targetNumber = parseInt(value);
+    game.status = "playing";
+    game.currentTurn = game.players[1]; // Guesser's turn
+    return { game };
+  }
+
+  makeGuess(gameId, playerId, value) {
+    const game = this.games.get(gameId);
+    if (!game || game.status !== "playing" || game.gameType !== 'numberguess') return { error: "Invalid game state" };
+    if (game.players[1] !== playerId) return { error: "Only the guesser can make moves" };
+
+    const guessVal = parseInt(value);
+    game.attempts++;
+    let result = "";
+
+    if (guessVal === game.targetNumber) {
+      result = "correct";
+      game.winner = playerId;
+      game.status = "finished";
+    } else if (guessVal < game.targetNumber) {
+      result = "low";
+    } else {
+      result = "high";
+    }
+
+    game.guesses.push({ value: guessVal, result, timestamp: Date.now() });
+
+    if (game.attempts >= game.maxAttempts && result !== "correct") {
+      game.status = "finished";
+      game.winner = "system"; // Lost
+    }
+
+    return { game, result };
   }
 
   checkWinner(board) {
