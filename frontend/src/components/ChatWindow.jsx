@@ -11,6 +11,8 @@ const ChatWindow = ({ chat, onBack }) => {
   const [msg, setMsg] = useState('');
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [sendViewOnce, setSendViewOnce] = useState(false);
+  const [viewingPhoto, setViewingPhoto] = useState(null); // { url, id, isGroup, chatId }
 
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -63,6 +65,7 @@ const ChatWindow = ({ chat, onBack }) => {
       } else {
         const chatId = getChatId(user.firebaseUID, chat.uid || chat.id);
         history = await getMessages(chatId);
+        if (socket) socket.emit('join_chat_room', chatId);
       }
 
       const formattedHistory = history.map(m => ({
@@ -109,6 +112,8 @@ const ChatWindow = ({ chat, onBack }) => {
         gameId: data.gameId,
         imageUrl: data.imageUrl,
         audioUrl: data.audioUrl,
+        isViewOnce: data.isViewOnce || false,
+        isOpened: data.isOpened || false,
         senderId: data.senderId || data.senderUid,
         senderName: data.senderName,
         timestamp: data.timestamp || Date.now(),
@@ -156,6 +161,13 @@ const ChatWindow = ({ chat, onBack }) => {
       ));
     };
 
+    const handleMessageOpened = (data) => {
+      console.log("[Socket] Message opened:", data);
+      setMessages(prev => prev.map(m => 
+        m.id === data.messageId ? { ...m, isOpened: true, imageUrl: null } : m
+      ));
+    };
+
     const handleGameCreated = (data) => {
       console.log("[Socket] Game created:", data);
       const msgData = data.message;
@@ -178,6 +190,7 @@ const ChatWindow = ({ chat, onBack }) => {
     socket.on('message_deleted', handleMessageDeleted);
     socket.on('game_created', handleGameCreated);
     socket.on('messages_read', handleMessagesRead);
+    socket.on('message_opened', handleMessageOpened);
 
     return () => {
       socket.off('receive_message', handleReceivePrivate);
@@ -186,6 +199,7 @@ const ChatWindow = ({ chat, onBack }) => {
       socket.off('message_deleted', handleMessageDeleted);
       socket.off('game_created', handleGameCreated);
       socket.off('messages_read', handleMessagesRead);
+      socket.off('message_opened', handleMessageOpened);
     };
   }, [socket, chat, isGroup]);
 
@@ -204,7 +218,9 @@ const ChatWindow = ({ chat, onBack }) => {
       senderEmail: user.email.toLowerCase(),
       senderName: user.name,
       senderUid: user.firebaseUID,
-      timestamp
+      timestamp,
+      isViewOnce: imageOverrideUrl ? sendViewOnce : false,
+      isOpened: false
     };
 
     if (isGroup) {
@@ -230,10 +246,13 @@ const ChatWindow = ({ chat, onBack }) => {
       senderId: user.firebaseUID,
       senderName: user.name,
       timestamp,
+      isViewOnce: imageOverrideUrl ? sendViewOnce : false,
+      isOpened: false,
       time: new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }).toLowerCase()
     }]);
 
     setMsg('');
+    setSendViewOnce(false); // Reset after sending
   };
 
   const handleStartGame = () => {
@@ -546,12 +565,36 @@ const ChatWindow = ({ chat, onBack }) => {
 
                   {m.imageUrl && (
                     <div className="message-image-container" style={{ marginBottom: '8px' }}>
-                      <img 
-                        src={m.imageUrl} 
-                        alt="Shared" 
-                        style={{ maxWidth: '100%', borderRadius: '8px', cursor: 'pointer', display: 'block' }} 
-                        onClick={() => window.open(m.imageUrl, '_blank')}
-                      />
+                      {m.isViewOnce ? (
+                        m.isOpened ? (
+                          <div className="view-once-opened">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style={{ marginRight: '6px' }}><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
+                            <span>Photo Viewed</span>
+                          </div>
+                        ) : (
+                          <div 
+                            className="view-once-placeholder" 
+                            onClick={() => {
+                              setViewingPhoto({ 
+                                url: m.imageUrl, 
+                                id: m.id, 
+                                isGroup, 
+                                chatId: isGroup ? chat.id : getChatId(user.firebaseUID, chat.uid || chat.id) 
+                              });
+                            }}
+                          >
+                            <div className="view-once-icon">1</div>
+                            <span>View Photo</span>
+                          </div>
+                        )
+                      ) : (
+                        <img 
+                          src={m.imageUrl} 
+                          alt="Shared" 
+                          style={{ maxWidth: '100%', borderRadius: '8px', cursor: 'pointer', display: 'block' }} 
+                          onClick={() => window.open(m.imageUrl, '_blank')}
+                        />
+                      )}
                     </div>
                   )}
 
@@ -609,6 +652,15 @@ const ChatWindow = ({ chat, onBack }) => {
             <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M21 6H3c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-10 7H8v3H6v-3H3v-2h3V8h2v3h3v2zm4.5 2c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm4-3c-.83 0-1.5-.67-1.5-1.5S18.67 9 19.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>
           </button>
         )}
+
+        <button 
+          className={`icon-btn view-once-toggle ${sendViewOnce ? 'active' : ''}`} 
+          onClick={() => setSendViewOnce(!sendViewOnce)}
+          title="Send as View Once"
+        >
+          <div className="view-once-badge">1</div>
+        </button>
+
         <div className="msg-input-wrapper">
           {isRecording ? (
             <div className="recording-indicator">
@@ -650,6 +702,34 @@ const ChatWindow = ({ chat, onBack }) => {
       {showGroupInfo && <GroupInfoModal group={chat} onClose={() => setShowGroupInfo(false)} />}
       {showChatInfo && <ChatInfoModal chat={chat} onClose={() => setShowChatInfo(false)} />}
       {showAddMember && <AddMemberModal group={chat} onClose={() => setShowAddMember(false)} onSuccess={() => setShowAddMember(false)} />}
+
+      {viewingPhoto && (
+        <div className="view-once-modal-overlay">
+          <div className="view-once-modal-content">
+            <button 
+              className="modal-close-btn" 
+              onClick={() => {
+                // Mark as opened ONLY after viewing/closing
+                socket.emit('mark_opened', { 
+                  chatId: viewingPhoto.chatId,
+                  messageId: viewingPhoto.id,
+                  isGroup: viewingPhoto.isGroup 
+                });
+                
+                // Lockdown local state immediately
+                setMessages(prev => prev.map(m => 
+                  m.id === viewingPhoto.id ? { ...m, isOpened: true, imageUrl: null } : m
+                ));
+                
+                setViewingPhoto(null);
+              }}
+            >
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="white"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/></svg>
+            </button>
+            <img src={viewingPhoto.url} alt="View Once" className="view-once-full-img" />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

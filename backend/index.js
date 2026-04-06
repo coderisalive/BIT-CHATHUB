@@ -84,6 +84,13 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('join_chat_room', (chatId) => {
+    if (chatId) {
+      socket.join(String(chatId));
+      console.log(`[Socket] User joined shared chat room: ${chatId}`);
+    }
+  });
+
   socket.on('send_message', async (data) => {
     const { to, text, senderEmail, senderName, senderUid, targetUid, targetName, imageUrl, audioUrl } = data;
     const normalizedTo = to.toLowerCase();
@@ -109,7 +116,9 @@ io.on('connection', (socket) => {
         audioUrl: audioUrl || null,
         timestamp: Date.now(),
         sent: true,
-        seen: false
+        seen: false,
+        isViewOnce: data.isViewOnce || false,
+        isOpened: false
       });
 
       const realId = newMsgRef.key;
@@ -126,6 +135,8 @@ io.on('connection', (socket) => {
         text,
         imageUrl,
         audioUrl,
+        isViewOnce: data.isViewOnce || false,
+        isOpened: false,
         senderEmail: normalizedFrom,
         senderName,
         senderUid,
@@ -187,7 +198,9 @@ io.on('connection', (socket) => {
       text,
       imageUrl: imageUrl || null,
       audioUrl: audioUrl || null,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      isViewOnce: data.isViewOnce || false,
+      isOpened: false
     };
 
     try {
@@ -352,6 +365,27 @@ io.on('connection', (socket) => {
       }
     } catch (err) {
       console.error('[Socket] Failed to mark as read:', err.message);
+    }
+  });
+
+  socket.on('mark_opened', async (data) => {
+    const { chatId, messageId, isGroup } = data;
+    console.log(`[Socket] Marking message ${messageId} as opened in ${chatId}`);
+
+    try {
+      const { db: adminDb } = require('./src/config/firebaseAdmin');
+      const path = isGroup ? `groupMessages/${chatId}/${messageId}` : `messages/${chatId}/${messageId}`;
+      const msgRef = adminDb.ref(path);
+      
+      await msgRef.update({ 
+        isOpened: true,
+        imageUrl: null // For security, remove the URL from DB after viewing
+      });
+
+      console.log(`[Socket] Broadcasting message_opened to room: ${chatId}`);
+      io.to(String(chatId)).emit('message_opened', { chatId, messageId, isGroup });
+    } catch (err) {
+      console.error('[Socket] Failed to mark as opened:', err.message);
     }
   });
 
