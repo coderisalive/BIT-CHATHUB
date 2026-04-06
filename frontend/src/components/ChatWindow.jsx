@@ -522,7 +522,6 @@ const ChatWindow = ({ chat, onBack }) => {
           />
           <div className="header-info" onClick={() => isGroup ? setShowGroupInfo(true) : setShowChatInfo(true)} style={{ cursor: 'pointer' }}>
             <span className="header-name">{chat.name}</span>
-            <span className="header-status">online</span>
           </div>
         </div>
         <div className="header-right" style={{ position: 'relative' }}>
