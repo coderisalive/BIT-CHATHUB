@@ -376,14 +376,19 @@ io.on('connection', (socket) => {
       const { db: adminDb } = require('./src/config/firebaseAdmin');
       const path = isGroup ? `groupMessages/${chatId}/${messageId}` : `messages/${chatId}/${messageId}`;
       const msgRef = adminDb.ref(path);
+      const snapshot = await msgRef.once('value');
+      const existing = snapshot.val();
       
-      await msgRef.update({ 
-        isOpened: true,
-        imageUrl: null // For security, remove the URL from DB after viewing
-      });
+      if (existing) {
+        await msgRef.update({ 
+          isOpened: true,
+          imageUrl: null, // For security, remove the URL from DB after viewing
+          text: existing.isViewOnce ? "Message Viewed" : existing.text
+        });
 
-      console.log(`[Socket] Broadcasting message_opened to room: ${chatId}`);
-      io.to(String(chatId)).emit('message_opened', { chatId, messageId, isGroup });
+        console.log(`[Socket] Broadcasting message_opened to room: ${chatId}`);
+        io.to(String(chatId)).emit('message_opened', { chatId, messageId, isGroup });
+      }
     } catch (err) {
       console.error('[Socket] Failed to mark as opened:', err.message);
     }

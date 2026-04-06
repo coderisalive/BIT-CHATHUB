@@ -219,7 +219,7 @@ const ChatWindow = ({ chat, onBack }) => {
       senderName: user.name,
       senderUid: user.firebaseUID,
       timestamp,
-      isViewOnce: imageOverrideUrl ? sendViewOnce : false,
+      isViewOnce: sendViewOnce,
       isOpened: false
     };
 
@@ -246,7 +246,7 @@ const ChatWindow = ({ chat, onBack }) => {
       senderId: user.firebaseUID,
       senderName: user.name,
       timestamp,
-      isViewOnce: imageOverrideUrl ? sendViewOnce : false,
+      isViewOnce: sendViewOnce,
       isOpened: false,
       time: new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }).toLowerCase()
     }]);
@@ -269,11 +269,17 @@ const ChatWindow = ({ chat, onBack }) => {
 
   const markRead = () => {
     if (!socket || !chat || isGroup) return;
+    const cid = getChatId(user.firebaseUID, chat.uid || chat.id);
     socket.emit('mark_read', {
-      chatId: getChatId(user.firebaseUID, chat.uid || chat.id),
+      chatId: cid,
       senderUid: chat.uid || chat.id, // the messages we are reading are from the other person
       targetUid: user.firebaseUID // the user who read them
     });
+
+    // Update local state immediately so burnMessages can trigger
+    setMessages(prev => prev.map(m => 
+      m.senderId !== user.firebaseUID ? { ...m, seen: true } : m
+    ));
   };
 
   const scrollToBottom = () => {
@@ -284,12 +290,44 @@ const ChatWindow = ({ chat, onBack }) => {
     scrollToBottom();
   }, [messages]);
 
+  // Burn View Once messages on exit or tab switch
+  useEffect(() => {
+    // Capture values needed for cleanup to ensure they refer to THIS chat session
+    const currentChatId = isGroup ? chat?.id : getChatId(user.firebaseUID, chat?.uid || chat?.id);
+    const currentMessages = [...messages];
+
+    const burnMessages = () => {
+      if (!currentChatId) return;
+
+      currentMessages.forEach(m => {
+        // If it's a view-once message, it's been seen by us (as recipient), but not yet opened
+        if (m.isViewOnce && !m.isOpened && m.senderId !== user.firebaseUID && m.seen) {
+          console.log("[ViewOnce] Burning message:", m.id, "in room:", currentChatId);
+          socket.emit('mark_opened', { chatId: currentChatId, messageId: m.id, isGroup });
+        }
+      });
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        burnMessages();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      burnMessages();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [chat, messages, user.firebaseUID, isGroup, socket, getChatId]);
+
   // Mark everything as read when chat is opened
   useEffect(() => {
     if (chat && !isGroup) {
       markRead();
     }
-  }, [chat, isGroup]);
+  }, [chat, isGroup, socket]);
 
   const handleFileChange = async (e) => {
     const file = e.target.files[0];
@@ -603,7 +641,23 @@ const ChatWindow = ({ chat, onBack }) => {
                       <audio src={m.audioUrl} controls style={{ maxWidth: '240px', height: '36px' }} />
                     </div>
                   )}
-                  {m.text && <p>{m.text}</p>}
+                  {m.text && (
+                    <div className="message-text">
+                      {m.isViewOnce && m.isOpened ? (
+                        <div className="view-once-opened">
+                          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style={{ marginRight: '6px' }}><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
+                          <span>Message Viewed</span>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', alignItems: 'center' }}>
+                          <p>{m.text}</p>
+                          {m.isViewOnce && !m.isOpened && (
+                            <div className="view-once-indicator" title="View Once Message">1</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {m.type === 'game' && (
                     <TicTacToe 
                       gameId={m.gameId} 
