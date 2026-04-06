@@ -386,6 +386,19 @@ io.on('connection', (socket) => {
           text: existing.isViewOnce ? "Message Viewed" : existing.text
         });
 
+        // Update lastMessage in metadata for sidebar sync
+        const lastMsgPreview = existing.type === 'image' ? "Photo Viewed" : "Message Viewed";
+        if (isGroup) {
+          // Update for all group members (This is complex in this setup, usually done via a centralized groups ref)
+          // For now, update the main group metadata if it exists
+          adminDb.ref(`groups/${chatId}/lastMessage`).set(lastMsgPreview);
+        } else {
+          // Update for both users in private chat
+          const [u1, u2] = chatId.split('_');
+          adminDb.ref(`users/${u1}/contacts/${u2}/lastMessage`).set(lastMsgPreview);
+          adminDb.ref(`users/${u2}/contacts/${u1}/lastMessage`).set(lastMsgPreview);
+        }
+
         console.log(`[Socket] Broadcasting message_opened to room: ${chatId}`);
         io.to(String(chatId)).emit('message_opened', { chatId, messageId, isGroup });
       }
