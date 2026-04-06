@@ -4,6 +4,7 @@ import { auth } from '../config/firebaseConfig';
 import GroupInfoModal from './GroupInfoModal';
 import AddMemberModal from './AddMemberModal';
 import ChatInfoModal from './ChatInfoModal';
+import TicTacToe from './TicTacToe';
 
 const ChatWindow = ({ chat, onBack }) => {
   const { user, getChatId, socket, getMessages, getGroupMessages, clearChatMessages, clearGroupMessages, deleteMessage } = useAuth();
@@ -31,6 +32,7 @@ const ChatWindow = ({ chat, onBack }) => {
 
   const dropdownRef = useRef(null);
   const msgDropdownRef = useRef(null);
+  const messagesEndRef = useRef(null);
 
   const isGroup = chat?.isGroup;
 
@@ -66,7 +68,7 @@ const ChatWindow = ({ chat, onBack }) => {
       const formattedHistory = history.map(m => ({
         ...m,
         time: m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }).toLowerCase() : 'just now'
-      }));
+      })).sort((a, b) => a.timestamp - b.timestamp);
 
       setMessages(formattedHistory);
       setLoading(false);
@@ -103,6 +105,8 @@ const ChatWindow = ({ chat, onBack }) => {
       const newMessage = {
         id: data.id || `live-${Date.now()}`,
         text: data.text,
+        type: data.type,
+        gameId: data.gameId,
         imageUrl: data.imageUrl,
         audioUrl: data.audioUrl,
         senderId: data.senderId || data.senderUid,
@@ -124,6 +128,12 @@ const ChatWindow = ({ chat, onBack }) => {
           console.log("[Socket] Duplicate detected, skipping.");
           return prev;
         }
+
+        // If the current chat is active and the incoming message is from the other person
+        if (!isGroup && String(newMessage.senderId) === String(chat.uid || chat.id)) {
+          markRead();
+        }
+
         return [...prev, newMessage].sort((a, b) => a.timestamp - b.timestamp);
       });
     };
@@ -139,16 +149,43 @@ const ChatWindow = ({ chat, onBack }) => {
       setMessages(prev => prev.filter(m => m.id !== data.messageId));
     };
 
+    const handleMessagesRead = (data) => {
+      console.log("[Socket] Messages were read by the recipient.");
+      setMessages(prev => prev.map(m => 
+        m.senderId === user.firebaseUID ? { ...m, seen: true } : m
+      ));
+    };
+
+    const handleGameCreated = (data) => {
+      console.log("[Socket] Game created:", data);
+      const msgData = data.message;
+      if (msgData) {
+        setMessages(prev => {
+          const exists = prev.some(m => m.id === msgData.id);
+          if (exists) return prev;
+          return [...prev, {
+            ...msgData,
+            senderId: msgData.senderId || msgData.senderUid,
+            time: new Date(msgData.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }).toLowerCase()
+          }].sort((a, b) => a.timestamp - b.timestamp);
+        });
+      }
+    };
+
     socket.on('receive_message', handleReceivePrivate);
     socket.on('receive_group_message', handleReceiveGroup);
     socket.on('message_persistence_success', handleMessageSuccess);
     socket.on('message_deleted', handleMessageDeleted);
+    socket.on('game_created', handleGameCreated);
+    socket.on('messages_read', handleMessagesRead);
 
     return () => {
       socket.off('receive_message', handleReceivePrivate);
       socket.off('receive_group_message', handleReceiveGroup);
       socket.off('message_persistence_success', handleMessageSuccess);
       socket.off('message_deleted', handleMessageDeleted);
+      socket.off('game_created', handleGameCreated);
+      socket.off('messages_read', handleMessagesRead);
     };
   }, [socket, chat, isGroup]);
 
@@ -198,6 +235,42 @@ const ChatWindow = ({ chat, onBack }) => {
 
     setMsg('');
   };
+
+  const handleStartGame = () => {
+    if (!socket || isGroup) return;
+    socket.emit('create_game', {
+      to: chat.email.toLowerCase(),
+      targetUid: chat.uid || chat.id,
+      senderUid: user.firebaseUID,
+      senderName: user.name,
+      senderEmail: user.email,
+      gameType: 'tictactoe'
+    });
+  };
+
+  const markRead = () => {
+    if (!socket || !chat || isGroup) return;
+    socket.emit('mark_read', {
+      chatId: getChatId(user.firebaseUID, chat.uid || chat.id),
+      senderUid: chat.uid || chat.id, // the messages we are reading are from the other person
+      targetUid: user.firebaseUID // the user who read them
+    });
+  };
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  // Mark everything as read when chat is opened
+  useEffect(() => {
+    if (chat && !isGroup) {
+      markRead();
+    }
+  }, [chat, isGroup]);
 
   const handleFileChange = async (e) => {
     const file = e.target.files[0];
@@ -488,11 +561,20 @@ const ChatWindow = ({ chat, onBack }) => {
                     </div>
                   )}
                   {m.text && <p>{m.text}</p>}
+                  {m.type === 'game' && (
+                    <TicTacToe 
+                      gameId={m.gameId} 
+                      socket={socket} 
+                      currentUserId={user.firebaseUID} 
+                    />
+                  )}
                   <div className="message-status">
                     <span className="message-time">{m.time}</span>
                     {m.senderId === user.firebaseUID && (
                       <span className="read-receipt">
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="#53bdeb"><path d="M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM1 12l1.41-1.41L7.4 15.58 6 17 1 12z" /></svg>
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill={m.seen ? "#53bdeb" : "#8696a0"}>
+                          <path d="M18 7l-1.41-1.41-6.34 6.34 1.41 1.41L18 7zm4.24-1.41L11.66 16.17 7.48 12l-1.41 1.41L11.66 19l12-12-1.42-1.41zM1 12l1.41-1.41L7.4 15.58 6 17 1 12z" />
+                        </svg>
                       </span>
                     )}
                   </div>
@@ -502,6 +584,7 @@ const ChatWindow = ({ chat, onBack }) => {
             {messages.length === 0 && (
               <div className="empty-chat-msg">No messages here yet. Say hi! 👋</div>
             )}
+            <div ref={messagesEndRef} />
           </div>
         )}
       </div>
@@ -521,6 +604,11 @@ const ChatWindow = ({ chat, onBack }) => {
             <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>
           )}
         </button>
+        {!isGroup && (
+          <button className="icon-btn" onClick={handleStartGame} title="Start Tic-Tac-Toe">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M21 6H3c-1.1 0-2 .9-2 2v8c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2zm-10 7H8v3H6v-3H3v-2h3V8h2v3h3v2zm4.5 2c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm4-3c-.83 0-1.5-.67-1.5-1.5S18.67 9 19.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>
+          </button>
+        )}
         <div className="msg-input-wrapper">
           {isRecording ? (
             <div className="recording-indicator">

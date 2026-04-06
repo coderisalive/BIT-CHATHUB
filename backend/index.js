@@ -3,6 +3,7 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const http = require('http');
 const { Server } = require('socket.io');
+const gameService = require('./src/services/gameService');
 const authRoutes = require('./src/routes/authRoutes');
 const userRoutes = require('./src/routes/userRoutes');
 const uploadRoutes = require('./src/routes/uploadRoutes');
@@ -107,7 +108,8 @@ io.on('connection', (socket) => {
         imageUrl: imageUrl || null,
         audioUrl: audioUrl || null,
         timestamp: Date.now(),
-        sent: true
+        sent: true,
+        seen: false
       });
 
       const realId = newMsgRef.key;
@@ -233,6 +235,124 @@ io.on('connection', (socket) => {
     const { uid, name, avatar } = data;
     console.log(`[Socket] Profile updated broadcast for UID: ${uid}`);
     io.emit('profile_updated', { uid, name, avatar });
+  });
+
+  // --- MINI GAME SYSTEM ---
+  socket.on('create_game', async (data) => {
+    const { to, senderUid, senderName, targetUid, gameType, senderEmail } = data;
+    const game = gameService.createGame(senderUid, targetUid, gameType);
+    console.log(`[Game] Created ${gameType} game: ${game.gameId} between ${senderUid} and ${targetUid}`);
+    
+    socket.join(`game_${game.gameId}`);
+    
+    try {
+      const { admin: firebaseAdmin, db: adminDb } = require('./src/config/firebaseAdmin');
+      const getChatId = (u1, u2) => u1 < u2 ? `${u1}_${u2}` : `${u2}_${u1}`;
+      const chatId = getChatId(senderUid, targetUid);
+      
+      const newMsgRef = await adminDb.ref(`messages/${chatId}`).push({
+        senderId: senderUid,
+        text: `🎮 Join my Tic-Tac-Toe game!`,
+        type: 'game',
+        gameId: game.gameId,
+        timestamp: Date.now(),
+        sent: true
+      });
+      
+      const realId = newMsgRef.key;
+      const normalizedTo = to.toLowerCase();
+      const normalizedFrom = senderEmail ? senderEmail.toLowerCase() : '';
+
+      const messageData = {
+        id: realId,
+        text: `🎮 Join my Tic-Tac-Toe game!`,
+        type: 'game',
+        gameId: game.gameId,
+        senderEmail: normalizedFrom,
+        senderName,
+        senderUid,
+        timestamp: Date.now()
+      };
+
+      io.to(normalizedTo).emit('receive_message', messageData);
+      socket.emit('game_created', { game, message: messageData });
+      
+      console.log(`[Game] Invitation persisted with ID: ${realId}`);
+    } catch (err) {
+      console.error('[Game] Persistence error:', err);
+      socket.emit('game_created', game); // Fallback
+    }
+  });
+
+  socket.on('join_game', (data) => {
+    const { gameId, playerId } = data;
+    const game = gameService.joinGame(gameId, playerId);
+    if (game) {
+      console.log(`[Game] Player ${playerId} joined game: ${gameId}`);
+      socket.join(`game_${gameId}`);
+      io.to(`game_${gameId}`).emit('game_update', game);
+    }
+  });
+
+  socket.on('make_move', (data) => {
+    const { gameId, playerId, position } = data;
+    const result = gameService.makeMove(gameId, playerId, position);
+    if (result.game) {
+      console.log(`[Game] Move made in ${gameId} by ${playerId} at ${position}`);
+      io.to(`game_${gameId}`).emit('game_update', result.game);
+      
+      if (result.game.status === 'finished') {
+        console.log(`[Game] Game ${gameId} finished. Winner: ${result.game.winner}`);
+        // Optionally delete game from memory after some delay
+        setTimeout(() => gameService.deleteGame(gameId), 60000); 
+      }
+    } else {
+      socket.emit('game_error', { message: result.error });
+    }
+  });
+
+  socket.on('leave_game', (data) => {
+    const { gameId, playerId } = data;
+    const game = gameService.leaveGame(gameId, playerId);
+    if (game) {
+      io.to(`game_${gameId}`).emit('game_update', game);
+      socket.leave(`game_${gameId}`);
+    }
+  });
+
+  socket.on('mark_read', async (data) => {
+    const { chatId, targetUid, senderUid } = data; // targetUid is the user who read the messages
+    console.log(`[Socket] Marking messages as read in chat: ${chatId} for user: ${targetUid}`);
+
+    try {
+      const { db: adminDb } = require('./src/config/firebaseAdmin');
+      const messagesRef = adminDb.ref(`messages/${chatId}`);
+      const snapshot = await messagesRef.once('value');
+      const messages = snapshot.val();
+
+      if (messages) {
+        const updates = {};
+        Object.keys(messages).forEach(msgId => {
+          // If the message was sent by the other user (senderUid) and matches the chat
+          if (messages[msgId].senderId === senderUid && !messages[msgId].seen) {
+            updates[`${msgId}/seen`] = true;
+          }
+        });
+
+        if (Object.keys(updates).length > 0) {
+          await messagesRef.update(updates);
+          console.log(`[Socket] Updated ${Object.keys(updates).length} messages to seen.`);
+          
+          // Notify the original sender (senderUid) that their messages were read
+          const senderEmail = (await adminDb.ref(`users/${senderUid}/email`).get()).val();
+          if (senderEmail) {
+            io.to(senderEmail.toLowerCase()).emit('messages_read', { chatId, targetUid });
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[Socket] Failed to mark as read:', err.message);
+    }
   });
 
   socket.on('disconnect', () => {

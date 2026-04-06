@@ -930,3 +930,100 @@ body {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+
+/* Tic Tac Toe Game Styles */
+.game-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  min-width: 200px;
+  margin-top: 8px;
+}
+
+.game-status {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+  text-align: center;
+}
+
+.tictactoe-board {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  background: var(--border);
+  padding: 6px;
+  border-radius: 8px;
+}
+
+.tictactoe-cell {
+  width: 50px;
+  height: 50px;
+  background: var(--bg) !important;
+  border: none !important;
+  border-radius: 4px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 20px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  color: white;
+}
+
+.tictactoe-cell:hover:not(:disabled) {
+  background: var(--active-chat) !important;
+}
+
+.tictactoe-cell:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.tictactoe-cell.x {
+  color: #53bdeb !important;
+}
+
+.tictactoe-cell.o {
+  color: #ea0038 !important;
+}
+
+.tictactoe-cell:disabled {
+  cursor: default;
+  opacity: 0.8;
+}
+
+.game-actions {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.game-btn {
+  flex: 1;
+  padding: 8px;
+  border-radius: 6px;
+  border: none;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.game-btn.accept {
+  background: var(--accent) !important;
+  color: #111b21 !important;
+}
+
+.game-btn.decline {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: white !important;
+}
+
+.message-bubble.game-bubble {
+  min-width: 240px;
+}
