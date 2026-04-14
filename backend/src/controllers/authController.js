@@ -1,4 +1,6 @@
 const { admin, db, auth, isConfigured } = require('../config/firebaseAdmin');
+const axios = require('axios');
+
 
 /**
  * Sync user with Firestore after Firebase Auth signup/login on frontend.
@@ -253,4 +255,55 @@ const removeContact = async (req, res) => {
 };
 
 
-module.exports = { syncUser, getMe, updateProfile, searchUsers, getContacts, addContact, removeContact };
+const changePassword = async (req, res) => {
+  try {
+    const { uid, email } = req.user;
+    const { oldPassword, newPassword, confirmPassword } = req.body;
+
+    if (!oldPassword || !newPassword || !confirmPassword) {
+      return res.status(400).json({ message: 'All password fields are required' });
+    }
+
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ message: 'New passwords do not match' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ message: 'New password must be at least 6 characters' });
+    }
+
+    // 1. Verify old password using Firebase Auth REST API
+    const API_KEY = process.env.FIREBASE_API_KEY;
+    if (!API_KEY) {
+      console.error('FIREBASE_API_KEY is missing in backend .env');
+      return res.status(500).json({ message: 'Server configuration error' });
+    }
+
+    try {
+      const verifyUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${API_KEY}`;
+      await axios.post(verifyUrl, {
+        email: email,
+        password: oldPassword,
+        returnSecureToken: true
+      });
+      console.log(`[Auth] Password verified for user ${email}`);
+    } catch (verifyError) {
+      console.warn(`[Auth] Password verification failed for ${email}:`, verifyError.response?.data?.error?.message || verifyError.message);
+      return res.status(401).json({ message: 'Incorrect old password' });
+    }
+
+    // 2. Update password via Firebase Admin SDK
+    await admin.auth().updateUser(uid, {
+      password: newPassword
+    });
+
+    console.log(`[Auth] Password successfully updated for user ${uid}`);
+    res.status(200).json({ message: 'Password updated successfully' });
+  } catch (error) {
+    console.error('Change password error:', error.message);
+    res.status(500).json({ message: 'Server error updating password' });
+  }
+};
+
+
+module.exports = { syncUser, getMe, updateProfile, searchUsers, getContacts, addContact, removeContact, changePassword };

@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { toast } from 'react-hot-toast';
+
 import { db } from '../config/firebaseConfig';
 import { ref, onValue } from 'firebase/database';
 import CreateGroupModal from './CreateGroupModal';
 
 const Sidebar = ({ onChatSelect, selectedChatId }) => {
-  const { user, logout, updateProfile, uploadProfilePicture, searchUsers, getContacts, addContact, removeContact, createGroup, getGroups } = useAuth();
+  const { user, logout, updateProfile, uploadProfilePicture, searchUsers, getContacts, addContact, removeContact, createGroup, getGroups, changePassword } = useAuth();
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
   const [showProfile, setShowProfile] = useState(false);
@@ -19,6 +21,9 @@ const Sidebar = ({ onChatSelect, selectedChatId }) => {
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [allChats, setAllChats] = useState([]);
   const [profileModalChat, setProfileModalChat] = useState(null);
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [passwords, setPasswords] = useState({ old: '', new: '', confirm: '' });
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
   const fileInputRef = React.useRef(null);
 
   // Load persistent contacts + Groups with Real-time Listener + Socket Fallback
@@ -147,6 +152,34 @@ const Sidebar = ({ onChatSelect, selectedChatId }) => {
       alert("Failed to upload image.");
     }
     setIsUploadingAvatar(false);
+  };
+  
+  const handlePasswordChange = async () => {
+    const { old, new: nBody, confirm } = passwords;
+    if (!old || !nBody || !confirm) {
+      toast.error('All fields are required');
+      return;
+    }
+    if (nBody !== confirm) {
+      toast.error('New passwords do not match');
+      return;
+    }
+    if (nBody.length < 6) {
+      toast.error('New password must be at least 6 characters');
+      return;
+    }
+
+    setIsChangingPassword(true);
+    const result = await changePassword(old, nBody, confirm);
+    
+    if (result.success) {
+      toast.success('Password updated successfully!');
+      setPasswords({ old: '', new: '', confirm: '' });
+      setShowChangePassword(false);
+    } else {
+      toast.error(result.message);
+    }
+    setIsChangingPassword(false);
   };
 
   const handleUserSearch = async () => {
@@ -277,6 +310,52 @@ const Sidebar = ({ onChatSelect, selectedChatId }) => {
             <div className="info-val">
               <span>{user?.email || 'No email provided'}</span>
             </div>
+          </div>
+
+          <div className="profile-info-section">
+            <div className="password-toggle-header" onClick={() => setShowChangePassword(!showChangePassword)}>
+              <label style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', color: showChangePassword ? 'var(--accent)' : 'inherit' }}>
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M12.65 10C11.83 7.67 9.61 6 7 6c-3.31 0-6 2.69-6 6s2.69 6 6 6c2.61 0 4.83-1.67 5.65-4H17v4h4v-4h2v-4H12.65zM7 14c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2z"/></svg>
+                Change Password
+              </label>
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" style={{ transform: showChangePassword ? 'rotate(180deg)' : 'none', transition: 'transform 0.3s' }}><path d="M7 10l5 5 5-5z"/></svg>
+            </div>
+            
+            {showChangePassword && (
+              <div className="password-change-form">
+                <div className="pw-input-group">
+                  <input
+                    type="password"
+                    placeholder="Old Password"
+                    value={passwords.old}
+                    onChange={(e) => setPasswords({...passwords, old: e.target.value})}
+                  />
+                </div>
+                <div className="pw-input-group">
+                  <input
+                    type="password"
+                    placeholder="New Password"
+                    value={passwords.new}
+                    onChange={(e) => setPasswords({...passwords, new: e.target.value})}
+                  />
+                </div>
+                <div className="pw-input-group">
+                  <input
+                    type="password"
+                    placeholder="Confirm New Password"
+                    value={passwords.confirm}
+                    onChange={(e) => setPasswords({...passwords, confirm: e.target.value})}
+                  />
+                </div>
+                <button 
+                  className="update-pw-btn" 
+                  disabled={isChangingPassword}
+                  onClick={handlePasswordChange}
+                >
+                  {isChangingPassword ? 'Updating...' : 'Update Password'}
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="profile-actions">

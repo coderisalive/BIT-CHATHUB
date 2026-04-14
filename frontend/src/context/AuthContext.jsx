@@ -323,6 +323,23 @@ export const AuthProvider = ({ children }) => {
     return true;
   };
 
+  const changePassword = async (oldPassword, newPassword, confirmPassword) => {
+    try {
+      const idToken = await auth.currentUser.getIdToken();
+      const res = await axios.put(`${API_URL}/auth/change-password`, 
+        { oldPassword, newPassword, confirmPassword },
+        { headers: { Authorization: `Bearer ${idToken}` } }
+      );
+      return { success: true, message: res.data.message };
+    } catch (error) {
+      console.error('Change password error:', error);
+      return { 
+        success: false, 
+        message: error.response?.data?.message || 'Failed to update password' 
+      };
+    }
+  };
+
   const logout = () => {
     return signOut(auth);
   };
@@ -349,6 +366,7 @@ export const AuthProvider = ({ children }) => {
     getMessages,
     sendMessage,
     getChatId,
+    changePassword,
     socket,
     loading
   };

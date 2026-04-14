@@ -239,6 +239,73 @@ body {
   opacity: 0.9;
 }
 
+/* Password Change UI */
+.password-toggle-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  transition: color 0.2s;
+}
+
+.password-toggle-header:hover {
+  color: var(--accent);
+}
+
+.password-change-form {
+  margin-top: 15px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 15px;
+  background: rgba(255, 255, 255, 0.02);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.pw-input-group input {
+  width: 100%;
+  background: var(--search-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  color: var(--text-main);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.pw-input-group input:focus {
+  border-color: var(--accent);
+}
+
+.update-pw-btn {
+  background-color: var(--accent);
+  color: #111b21;
+  border: none;
+  padding: 12px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 14px;
+  transition: filter 0.2s, transform 0.1s;
+}
+
+.update-pw-btn:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.update-pw-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.update-pw-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* Chat List */
 .chat-list {
   flex: 1;
