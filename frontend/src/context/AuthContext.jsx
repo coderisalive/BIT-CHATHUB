@@ -198,7 +198,17 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const login = (email, password) => {
+  const login = async (identifier, password) => {
+    let email = identifier;
+    try {
+      // 1. Try to resolve Chat ID to Email
+      const res = await axios.post(`${API_URL}/auth/resolve-identifier`, { identifier });
+      if (res.data.email) email = res.data.email;
+    } catch (err) {
+      console.warn('[Login] Identifier resolution failed, trying as email directly.');
+    }
+    
+    // 2. Perform Firebase Auth
     return signInWithEmailAndPassword(auth, email, password);
   };
 

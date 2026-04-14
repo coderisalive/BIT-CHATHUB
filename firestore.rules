@@ -1,37 +1,43 @@
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // --- USER PROFILES & CONTACTS ---
+    // --- USER PROFILES ---
     match /users/{userId} {
-      // Users can only manage their own profile and metadata
-      allow read: if request.auth != null;
+      // Allow getting a specific user document (needed for E2EE public keys)
+      // but PREVENT listing all users to protect email privacy.
+      allow get: if request.auth != null;
+      allow list: if false; 
+
+      // Users can only write to their own document
       allow write: if request.auth != null && request.auth.uid == userId;
 
-      // Sub-collections: Only the owner can access their own contacts or keys
-      match /contacts/{contactId} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
-      }
-      match /groups/{groupId} {
+      // Sub-collections (Contacts, Meta, etc.)
+      match /{allSubcollections=**} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
       }
     }
 
-    // --- GROUPS & GROUP E2EE ---
+    // --- PRIVATE CHATS ---
+    match /chats/{chatId} {
+      // Room IDs are usually uid1_uid2. Only participants can access.
+      allow read, write: if request.auth != null && chatId.contains(request.auth.uid);
+      
+      match /messages/{messageId} {
+        allow read, write: if request.auth != null && chatId.contains(request.auth.uid);
+      }
+    }
+
+    // --- GROUPS ---
     match /groups/{groupId} {
       // Anyone logged in can create a group
       allow create: if request.auth != null;
       
-      // Members can read group metadata
-      allow read: if request.auth != null && (request.auth.uid in resource.data.members);
-      
-      // Allow updates if you are a member
-      allow update: if request.auth != null && (request.auth.uid in resource.data.members);
+      // Members can read group metadata and messages
+      allow read, update: if request.auth != null && (request.auth.uid in resource.data.members);
 
       // Group Messages
       match /messages/{messageId} {
-        // Only members can read/write messages in this group
         allow read, write: if request.auth != null && (get(/databases/$(database)/documents/groups/$(groupId)).data.members.hasAny([request.auth.uid]));
       }
 
@@ -44,21 +50,9 @@ service cloud.firestore {
       }
     }
 
-    // --- PRIVATE CHAT ROOMS ---
-    match /messages_rooms/{roomId} {
-       // A room ID typically contains both user IDs (e.g., uid1_uid2)
-       // We allow read/write if the user is part of the ID string
-       allow read, write: if request.auth != null && roomId.contains(request.auth.uid);
-       
-       match /messages/{messageId} {
-         allow read, write: if request.auth != null && roomId.contains(request.auth.uid);
-       }
-    }
-
     // --- FILE TRACKING ---
     match /files/{fileId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null;
+      allow read, write: if request.auth != null;
     }
   }
 }

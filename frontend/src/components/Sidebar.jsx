@@ -293,6 +293,26 @@ const Sidebar = ({ onChatSelect, selectedChatId }) => {
           </div>
 
           <div className="profile-info-section">
+            <label>Chat ID</label>
+            <div className="info-val" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ color: 'var(--accent)', fontWeight: 'bold' }}>{user?.chatId || 'Generating...'}</span>
+              <button 
+                className="icon-btn" 
+                title="Copy Chat ID"
+                onClick={() => {
+                  if (user?.chatId) {
+                    navigator.clipboard.writeText(user.chatId);
+                    toast.success('Chat ID copied!');
+                  }
+                }}
+              >
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/></svg>
+              </button>
+            </div>
+            <p className="info-desc">Share this ID with others so they can find you on BIT CHATHUB.</p>
+          </div>
+
+          <div className="profile-info-section">
             <label>Email / Account</label>
             <div className="info-val">
               <span>{user?.email || 'No email provided'}</span>
@@ -369,7 +389,7 @@ const Sidebar = ({ onChatSelect, selectedChatId }) => {
           <div className="search-bar">
             <input
               type="text"
-              placeholder="Search by email or phone"
+              placeholder="Search by Chat ID (e.g. name@1234)"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && handleUserSearch()}
@@ -391,14 +411,14 @@ const Sidebar = ({ onChatSelect, selectedChatId }) => {
                 </div>
                 <div className="chat-info">
                   <span className="chat-name">{u.name}</span>
-                  <p className="latest-msg">{u.email}</p>
+                  <p className="latest-msg" style={{ color: 'var(--accent)' }}>{u.chatId}</p>
                 </div>
               </div>
             ))
           ) : searchQuery ? (
-            <div className="no-chats-msg">No user found with that email/phone.</div>
+            <div className="no-chats-msg">No user found with that Chat ID.</div>
           ) : (
-            <div className="no-chats-msg">Enter an email or phone number to find someone.</div>
+            <div className="no-chats-msg">Enter a Chat ID to find someone.</div>
           )}
         </div>
       </div>

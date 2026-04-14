@@ -2,6 +2,27 @@ const { admin, db, firestore, auth, isConfigured } = require('../config/firebase
 const axios = require('axios');
 
 /**
+ * Helper to generate a unique Chat ID: <name><symbol><4 digits>
+ */
+const generateChatId = async (name) => {
+  const sanitized = (name || 'user').toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 10);
+  const symbols = ['@', '#', '$'];
+  
+  let attempts = 0;
+  while (attempts < 5) {
+    const symbol = symbols[Math.floor(Math.random() * symbols.length)];
+    const digits = Math.floor(1000 + Math.random() * 9000);
+    const chatId = `${sanitized}${symbol}${digits}`;
+    
+    // Check uniqueness
+    const existing = await firestore.collection('users').where('chatId', '==', chatId).get();
+    if (existing.empty) return chatId;
+    attempts++;
+  }
+  return `${sanitized}${Date.now().toString().slice(-5)}`; // Fallback
+};
+
+/**
  * Sync user with Firestore after Firebase Auth signup/login on frontend.
  */
 const syncUser = async (req, res) => {
@@ -13,10 +34,12 @@ const syncUser = async (req, res) => {
     const doc = await userRef.get();
 
     if (!doc.exists) {
+      const chatId = await generateChatId(name);
       const newUser = {
         name: name || 'User',
         email: email || '',
         avatar: picture || '',
+        chatId: chatId,
         firebaseUID: uid,
         publicKey: publicKey || null,
         encryptedPrivateKey: encryptedPrivateKey || null,
@@ -30,6 +53,12 @@ const syncUser = async (req, res) => {
     const userData = doc.data();
     const updates = {};
     let shouldUpdate = false;
+
+    // Phase 3.5: Assign Chat ID to legacy users if missing
+    if (!userData.chatId) {
+      updates.chatId = await generateChatId(userData.name);
+      shouldUpdate = true;
+    }
 
     // Update public key if missing
     if (publicKey && !userData.publicKey) {
@@ -125,39 +154,28 @@ const searchUsers = async (req, res) => {
     }
 
     const searchTerm = searchQuery.toLowerCase().trim();
-    console.log(`[Search] Looking for: ${searchTerm}`);
+    console.log(`[Search] Looking for Chat ID: ${searchTerm}`);
 
     if (!isConfigured) {
       return res.status(200).json([]);
     }
 
-    // 1. Search in Firestore
+    // STRICT Search by Chat ID only
     const usersSnap = await firestore.collection('users')
-      .where('email', '==', searchTerm)
+      .where('chatId', '==', searchTerm)
       .get();
     
-    let results = usersSnap.docs.map(doc => doc.data());
-
-    // 2. Fallback to Firebase Auth
-    if (results.length === 0) {
-      try {
-        const firebaseUser = await auth.getUserByEmail(searchTerm);
-        if (firebaseUser) {
-          const foundUser = {
-            name: firebaseUser.displayName || 'Firebase User',
-            email: firebaseUser.email || '',
-            avatar: firebaseUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${firebaseUser.uid}`,
-            firebaseUID: firebaseUser.uid,
-            createdAt: new Date().toISOString()
-          };
-          // Create in Firestore
-          await firestore.collection('users').doc(firebaseUser.uid).set(foundUser);
-          results = [foundUser];
-        }
-      } catch (authError) {
-        // Not found in auth either
-      }
-    }
+    // Return privacy-focused results
+    const results = usersSnap.docs.map(doc => {
+      const data = doc.data();
+      return {
+        name: data.name,
+        chatId: data.chatId,
+        avatar: data.avatar,
+        firebaseUID: data.firebaseUID,
+        publicKey: data.publicKey || null
+      };
+    });
 
     res.status(200).json(results);
   } catch (error) {
@@ -259,7 +277,34 @@ const changePassword = async (req, res) => {
   }
 };
 
-module.exports = { syncUser, getMe, updateProfile, searchUsers, getContacts, addContact, removeContact, changePassword };
+const resolveIdentifier = async (req, res) => {
+  try {
+    const { identifier } = req.body;
+    if (!identifier) return res.status(400).json({ message: 'Identifier is required' });
 
+    const idStr = identifier.trim();
 
-module.exports = { syncUser, getMe, updateProfile, searchUsers, getContacts, addContact, removeContact, changePassword };
+    // 1. If it looks like an email, it's already resolved
+    if (idStr.includes('@') && idStr.includes('.')) {
+      return res.status(200).json({ email: idStr.toLowerCase() });
+    }
+
+    // 2. Search for chatId in Firestore
+    const userSnap = await firestore.collection('users')
+      .where('chatId', '==', idStr)
+      .limit(1)
+      .get();
+
+    if (userSnap.empty) {
+      return res.status(404).json({ message: 'No user found with this Chat ID' });
+    }
+
+    const userData = userSnap.docs[0].data();
+    res.status(200).json({ email: userData.email });
+  } catch (error) {
+    console.error('Resolve identifier error:', error.message);
+    res.status(500).json({ message: 'Server error resolving identifier' });
+  }
+};
+
+module.exports = { syncUser, getMe, updateProfile, searchUsers, getContacts, addContact, removeContact, changePassword, resolveIdentifier };
