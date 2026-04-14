@@ -4,8 +4,9 @@ const axios = require('axios');
 /**
  * Helper to generate a unique Chat ID: <name><symbol><4 digits>
  */
-const generateChatId = async (name) => {
-  const sanitized = (name || 'user').toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 10);
+const generateChatId = async (name, email) => {
+  const base = name || (email ? email.split('@')[0] : 'user');
+  const sanitized = base.toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 4);
   const symbols = ['@', '#', '$'];
   
   let attempts = 0;
@@ -34,7 +35,7 @@ const syncUser = async (req, res) => {
     const doc = await userRef.get();
 
     if (!doc.exists) {
-      const chatId = await generateChatId(name);
+      const chatId = await generateChatId(name, email);
       const newUser = {
         name: name || 'User',
         email: email || '',
@@ -56,7 +57,7 @@ const syncUser = async (req, res) => {
 
     // Phase 3.5: Assign Chat ID to legacy users if missing
     if (!userData.chatId) {
-      updates.chatId = await generateChatId(userData.name);
+      updates.chatId = await generateChatId(userData.name, userData.email);
       shouldUpdate = true;
     }
 

@@ -19,6 +19,7 @@ const auth = getAuth(app);
 const db = getDatabase(app);
 const firestore = initializeFirestore(app, {
   experimentalForceLongPolling: true,
+  useFetchStreams: false,
 });
 const analytics = getAnalytics(app);
 

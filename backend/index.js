@@ -62,12 +62,19 @@ const connectedUsers = new Map(); // email -> socketId
 io.on('connection', (socket) => {
   console.log(`[Socket] User connected: ${socket.id}`);
 
-  socket.on('join', (email) => {
+  socket.on('join', (data) => {
+    const email = typeof data === 'string' ? data : data?.email;
+    const uid = typeof data === 'object' ? data?.uid : socket.handshake.query.uid;
+
     if (email) {
       const normalizedEmail = email.toLowerCase();
       connectedUsers.set(normalizedEmail, socket.id);
       socket.join(normalizedEmail);
-      console.log(`[Socket] User ${normalizedEmail} joined`);
+      console.log(`[Socket] User ${normalizedEmail} (Email) joined`);
+    }
+    if (uid) {
+      socket.join(uid);
+      console.log(`[Socket] User ${uid} (UID) joined`);
     }
   });
 
@@ -125,14 +132,16 @@ io.on('connection', (socket) => {
       // 2. Notify sender of real ID
       socket.emit('message_persistence_success', { tempId, realId });
 
-      // 3. Relay to recipient
-      io.to(normalizedTo).emit('receive_message', {
+      // 3. Relay to recipient (via UID preferred)
+      const targetRoom = targetUid || normalizedTo;
+      io.to(targetRoom).emit('receive_message', {
         id: realId,
         ...messagePayload,
         senderEmail: normalizedFrom,
         senderName,
-        senderUid
+        targetUid
       });
+      console.log(`[Socket] Message relayed to room: ${targetRoom}`);
 
       // 4. Update Contacts in Firestore
       const lastMsgPreview = isEncrypted ? '🔐 Encrypted Message' : (imageUrl ? '📷 Image' : (audioUrl ? '🎤 Voice Note' : text));

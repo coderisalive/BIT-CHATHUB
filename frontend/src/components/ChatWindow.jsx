@@ -302,8 +302,8 @@ const ChatWindow = ({ chat, onBack }) => {
       });
     } else {
       socket.emit('send_message', {
-        to: chat.email.toLowerCase(),
-        targetUid: chat.uid || chat.id,
+        to: chat.email?.toLowerCase() || '',
+        targetUid: chat.firebaseUID || chat.uid || chat.id,
         targetName: chat.name,
         ...payload
       });

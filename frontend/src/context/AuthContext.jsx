@@ -53,7 +53,10 @@ export const AuthProvider = ({ children }) => {
       });
       newSocket.on('connect', () => {
         console.log('[Socket] Connected to server');
-        newSocket.emit('join', user.email.toLowerCase());
+        newSocket.emit('join', { 
+          email: user.email?.toLowerCase(), 
+          uid: user.uid || user.firebaseUID 
+        });
       });
       setSocket(newSocket);
       return () => newSocket.close();
@@ -275,7 +278,7 @@ export const AuthProvider = ({ children }) => {
   const getMessages = async (chatId) => {
     try {
       const idToken = await auth.currentUser.getIdToken();
-      const response = await axios.get(`${API_URL.replace('/api/auth', '').replace('/api', '')}/api/messages/${chatId}`, {
+      const response = await axios.get(`${SOCKET_URL}/api/messages/${chatId}`, {
         headers: { Authorization: `Bearer ${idToken}` }
       });
       return response.data;
@@ -544,7 +547,7 @@ export const AuthProvider = ({ children }) => {
 
   const value = {
     user,
-    signup: signupWithE2EE,
+    signupWithE2EE,
     login,
     logout,
     updateProfile: updateProfileInDB,
