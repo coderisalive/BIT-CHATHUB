@@ -6,9 +6,21 @@ import AddMemberModal from './AddMemberModal';
 import ChatInfoModal from './ChatInfoModal';
 import TicTacToe from './TicTacToe';
 import NumberGuess from './NumberGuess';
+import { encryptMessage, decryptMessage } from '../utils/crypto';
 
 const ChatWindow = ({ chat, onBack }) => {
-  const { user, getChatId, socket, getMessages, getGroupMessages, clearChatMessages, clearGroupMessages, deleteMessage } = useAuth();
+  const { 
+    user, 
+    getChatId, 
+    socket, 
+    getMessages, 
+    getGroupMessages, 
+    clearChatMessages, 
+    clearGroupMessages, 
+    deleteMessage,
+    getSharedKeyForUser,
+    getGroupKey
+  } = useAuth();
   const [msg, setMsg] = useState('');
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -61,22 +73,47 @@ const ChatWindow = ({ chat, onBack }) => {
       setLoading(true);
       let history = [];
 
-      if (isGroup) {
-        history = await getGroupMessages(chat.id);
-        if (socket) socket.emit('join_group', chat.id);
-      } else {
-        const chatId = getChatId(user.firebaseUID, chat.uid || chat.id);
-        history = await getMessages(chatId);
-        if (socket) socket.emit('join_chat_room', chatId);
+      try {
+        if (isGroup) {
+          history = await getGroupMessages(chat.id);
+          if (socket) socket.emit('join_group', chat.id);
+        } else {
+          const cid = getChatId(user.firebaseUID, chat.uid || chat.id);
+          history = await getMessages(cid);
+          if (socket) socket.emit('join_chat_room', cid);
+
+          // Decrypt private messages
+          console.log('[E2EE] Decrypting history...');
+          const sharedKey = isGroup ? await getGroupKey(chat.id) : await getSharedKeyForUser(chat.uid || chat.id);
+          
+          history = await Promise.all(history.map(async (m) => {
+            if (m.isEncrypted && m.encryptedText && m.iv) {
+              if (!sharedKey) {
+                return { ...m, text: '🔐 [Encrypted - Key Missing]' };
+              }
+              try {
+                const decrypted = await decryptMessage(m.encryptedText, m.iv, sharedKey);
+                return { ...m, text: decrypted };
+              } catch (err) {
+                console.error(`[E2EE] Failed to decrypt msg ${m.id}:`, err);
+                return { ...m, text: '📩 [Decryption Failed]' };
+              }
+            }
+            return m;
+          }));
+        }
+
+        const formattedHistory = history.map(m => ({
+          ...m,
+          time: m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }).toLowerCase() : 'just now'
+        })).sort((a, b) => a.timestamp - b.timestamp);
+
+        setMessages(formattedHistory);
+      } catch (err) {
+        console.error('Failed to load history:', err);
+      } finally {
+        setLoading(false);
       }
-
-      const formattedHistory = history.map(m => ({
-        ...m,
-        time: m.timestamp ? new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }).toLowerCase() : 'just now'
-      })).sort((a, b) => a.timestamp - b.timestamp);
-
-      setMessages(formattedHistory);
-      setLoading(false);
     };
 
     loadHistory();
@@ -105,17 +142,33 @@ const ChatWindow = ({ chat, onBack }) => {
       }
     };
 
-    const addLiveMessage = (data) => {
+    const addLiveMessage = async (data) => {
       console.log("[Socket] Processing live message:", data);
+      let decodedText = data.text;
+
+      // Decrypt if necessary
+      if (data.isEncrypted && data.encryptedText && data.iv) {
+        try {
+          const sharedKey = isGroup ? await getGroupKey(chat.id) : await getSharedKeyForUser(chat.uid || chat.id);
+          if (sharedKey) {
+            decodedText = await decryptMessage(data.encryptedText, data.iv, sharedKey);
+          }
+        } catch (err) {
+          console.error('[E2EE] Live decryption failed:', err);
+          decodedText = '📩 [Decryption Failed]';
+        }
+      }
+
       const newMessage = {
         id: data.id || `live-${Date.now()}`,
-        text: data.text,
+        text: decodedText,
         type: data.type,
         gameId: data.gameId,
         imageUrl: data.imageUrl,
         audioUrl: data.audioUrl,
         isViewOnce: data.isViewOnce || false,
         isOpened: data.isOpened || false,
+        isEncrypted: data.isEncrypted,
         senderId: data.senderId || data.senderUid,
         senderName: data.senderName,
         timestamp: data.timestamp || Date.now(),
@@ -210,11 +263,28 @@ const ChatWindow = ({ chat, onBack }) => {
 
     const timestamp = Date.now();
     const tempId = `temp-${timestamp}`;
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+    let encryptedPayload = { encryptedText: null, iv: null };
+
+    // E2EE Encryption
+    if (msg.trim()) {
+      try {
+        const sharedKey = isGroup ? await getGroupKey(chat.id) : await getSharedKeyForUser(chat.uid || chat.id);
+        if (sharedKey) {
+          console.log('[E2EE] Encrypting message...');
+          encryptedPayload = await encryptMessage(msg, sharedKey);
+        }
+      } catch (err) {
+        console.error('[E2EE] Encryption failed:', err);
+        alert('Security error: Failed to encrypt message.');
+        return;
+      }
+    }
 
     const payload = {
       tempId,
-      text: msg,
+      text: encryptedPayload.encryptedText ? null : msg, // Clear text only if encrypted
+      encryptedText: encryptedPayload.encryptedText,
+      iv: encryptedPayload.iv,
       imageUrl: imageOverrideUrl,
       audioUrl: audioOverrideUrl,
       senderEmail: user.email.toLowerCase(),
@@ -250,11 +320,12 @@ const ChatWindow = ({ chat, onBack }) => {
       timestamp,
       isViewOnce: sendViewOnce,
       isOpened: false,
+      isEncrypted: !!encryptedPayload.encryptedText,
       time: new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }).toLowerCase()
     }]);
 
     setMsg('');
-    setSendViewOnce(false); // Reset after sending
+    setSendViewOnce(false);
   };
 
   const handleStartGame = (gameType = 'tictactoe') => {

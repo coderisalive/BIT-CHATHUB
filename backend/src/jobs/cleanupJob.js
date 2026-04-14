@@ -1,13 +1,12 @@
 const cron = require('node-cron');
 const imagekit = require('../config/imagekit');
-const { db: adminDb } = require('../config/firebaseAdmin');
+const { firestore } = require('../config/firebaseAdmin');
 
 /**
- * Cleanup job to delete files from ImageKit and Firebase after 48 hours.
+ * Cleanup job to delete files from ImageKit and Firestore after 48 hours.
  * Runs every hour.
  */
 const initCleanupJob = () => {
-  // Cron schedule: "0 * * * *" means "at minute 0 of every hour"
   cron.schedule('0 * * * *', async () => {
     console.log('[CleanupJob] Starting hourly file cleanup check...');
     
@@ -15,38 +14,32 @@ const initCleanupJob = () => {
       const FORTY_EIGHT_HOURS_MS = 48 * 60 * 60 * 1000;
       const threshold = Date.now() - FORTY_EIGHT_HOURS_MS;
       
-      const uploadsRef = adminDb.ref('uploads');
-      // Query for uploads created before the threshold
-      const snapshot = await uploadsRef
-        .orderByChild('createdAt')
-        .endAt(threshold)
-        .once('value');
+      const uploadsSnap = await firestore.collection('uploads')
+        .where('createdAt', '<', threshold)
+        .get();
         
-      const uploads = snapshot.val();
-      
-      if (!uploads) {
+      if (uploadsSnap.empty) {
         console.log('[CleanupJob] No expired files found.');
         return;
       }
       
-      const uploadKeys = Object.keys(uploads);
-      console.log(`[CleanupJob] Found ${uploadKeys.length} expired files to delete.`);
+      console.log(`[CleanupJob] Found ${uploadsSnap.size} expired files to delete.`);
       
-      for (const key of uploadKeys) {
-        const file = uploads[key];
+      for (const doc of uploadsSnap.docs) {
+        const file = doc.data();
         try {
           // 1. Delete from ImageKit
           await imagekit.deleteFile(file.fileId);
           console.log(`[CleanupJob] Deleted ${file.fileId} from ImageKit.`);
           
-          // 2. Delete the record from Firebase
-          await uploadsRef.child(key).remove();
-          console.log(`[CleanupJob] Removed record ${key} from Firebase.`);
+          // 2. Delete the record from Firestore
+          await doc.ref.delete();
+          console.log(`[CleanupJob] Removed record ${doc.id} from Firestore.`);
         } catch (error) {
           console.error(`[CleanupJob] Error deleting file ${file.fileId}:`, error.message);
           // If the file doesn't exist on ImageKit anymore, still remove our tracking record
           if (error.message.includes('not found') || error.status === 404) {
-            await uploadsRef.child(key).remove();
+            await doc.ref.delete();
           }
         }
       }

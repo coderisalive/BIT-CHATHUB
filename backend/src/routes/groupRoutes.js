@@ -7,5 +7,6 @@ router.post('/', protect, groupController.createGroup);
 router.get('/', protect, groupController.getGroups);
 router.get('/:groupId/members', protect, groupController.getGroupMembers);
 router.post('/:groupId/members', protect, groupController.addGroupMember);
+router.get('/:groupId/key', protect, groupController.getGroupKey);
 
 module.exports = router;

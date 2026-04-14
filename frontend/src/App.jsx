@@ -8,6 +8,7 @@ import ProtectedRoute from './components/ProtectedRoute';
 import Sidebar from './components/Sidebar';
 import HomePlaceholder from './components/HomePlaceholder';
 import ChatWindow from './components/ChatWindow';
+import RecoveryModal from './components/RecoveryModal';
 
 const ChatLayout = () => {
   const [selectedChat, setSelectedChat] = useState(null);
@@ -71,6 +72,7 @@ const ChatLayout = () => {
   return (
     <div className={`main-layout ${selectedChat ? 'has-selected-chat' : ''}`}>
       <Toaster position="top-right" reverseOrder={false} />
+      <RecoveryModal />
       <Sidebar onChatSelect={handleChatSelect} selectedChatId={selectedChat?.id} />
       {selectedChat ? (
         <ChatWindow chat={selectedChat} onBack={() => setSelectedChat(null)} />

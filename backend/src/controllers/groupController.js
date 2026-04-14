@@ -1,15 +1,14 @@
-const { db, firebaseAdmin } = require('../config/firebaseAdmin');
+const { firestore, admin, firebaseAdmin } = require('../config/firebaseAdmin');
 
 const createGroup = async (req, res) => {
   try {
     const { uid } = req.user;
-    const { name, members } = req.body; // members is an array of UIDs
+    const { name, members, keyMap } = req.body; 
 
     if (!name || !members || !Array.isArray(members)) {
       return res.status(400).json({ message: 'Group name and members array required' });
     }
 
-    // Ensure creator is in members
     if (!members.includes(uid)) {
       members.push(uid);
     }
@@ -21,16 +20,13 @@ const createGroup = async (req, res) => {
       avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${name}`,
       createdBy: uid,
       createdAt: Date.now(),
-      members: members.reduce((acc, memberUid) => {
-        acc[memberUid] = true;
-        return acc;
-      }, {})
+      members: members 
     };
 
     // 1. Create group metadata
-    await db.ref(`groups/${groupId}`).set(groupData);
+    await firestore.collection('groups').doc(groupId).set(groupData);
 
-    // 2. Link group to each member's profile for sidebar loading
+    // 2. Link group to each member's profile
     const groupSummary = {
       id: groupId,
       name,
@@ -41,12 +37,23 @@ const createGroup = async (req, res) => {
       unread: 0
     };
 
-    const updates = {};
+    const batch = firestore.batch();
     members.forEach(memberUid => {
-      updates[`users/${memberUid}/groups/${groupId}`] = groupSummary;
+      const memberGroupRef = firestore.collection('users').doc(memberUid).collection('groups').doc(groupId);
+      batch.set(memberGroupRef, groupSummary);
+
+      if (keyMap && keyMap[memberUid]) {
+        const keyRef = firestore.collection('groups').doc(groupId).collection('e2ee_keys').doc(memberUid);
+        batch.set(keyRef, {
+          wrappedKey: keyMap[memberUid].wrappedKey,
+          iv: keyMap[memberUid].iv,
+          wrapperUid: uid,
+          createdAt: Date.now()
+        });
+      }
     });
 
-    await db.ref().update(updates);
+    await batch.commit();
 
     res.status(201).json({ message: 'Group created successfully', group: groupSummary });
   } catch (error) {
@@ -58,14 +65,11 @@ const createGroup = async (req, res) => {
 const getGroups = async (req, res) => {
   try {
     const { uid } = req.user;
-    const groupsRef = db.ref(`users/${uid}/groups`);
-    const snapshot = await groupsRef.get();
-    const groups = snapshot.val() || {};
+    const groupsSnap = await firestore.collection('users').doc(uid).collection('groups').get();
     
-    // Inject key as 'id' to be 100% sure we don't lose the reference
-    const groupsArray = Object.keys(groups).map(key => ({
-      id: key,
-      ...groups[key]
+    const groupsArray = groupsSnap.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
     }));
     
     res.status(200).json(groupsArray);
@@ -78,22 +82,20 @@ const getGroups = async (req, res) => {
 const getGroupMembers = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const groupRef = db.ref(`groups/${groupId}`);
-    const snapshot = await groupRef.get();
-    const groupData = snapshot.val();
+    const groupDoc = await firestore.collection('groups').doc(groupId).get();
 
-    if (!groupData) {
+    if (!groupDoc.exists) {
       return res.status(404).json({ message: 'Group not found' });
     }
 
-    const memberUids = Object.keys(groupData.members || {});
+    const groupData = groupDoc.data();
+    const memberUids = groupData.members || [];
     const membersList = [];
 
-    // Fetch user details for each UID
     for (const uid of memberUids) {
-      const userSnap = await db.ref(`users/${uid}`).get();
-      const userData = userSnap.val();
-      if (userData) {
+      const userDoc = await firestore.collection('users').doc(uid).get();
+      if (userDoc.exists) {
+        const userData = userDoc.data();
         membersList.push({
           uid,
           name: userData.name || userData.email,
@@ -113,24 +115,25 @@ const getGroupMembers = async (req, res) => {
 const addGroupMember = async (req, res) => {
   try {
     const { groupId } = req.params;
-    const { newMemberUid } = req.body;
+    const { newMemberUid, wrappedKey } = req.body;
 
     if (!newMemberUid) {
       return res.status(400).json({ message: 'New member UID required' });
     }
 
-    const groupRef = db.ref(`groups/${groupId}`);
-    const snapshot = await groupRef.get();
-    const groupData = snapshot.val();
+    const groupRef = firestore.collection('groups').doc(groupId);
+    const groupDoc = await groupRef.get();
 
-    if (!groupData) {
+    if (!groupDoc.exists) {
       return res.status(404).json({ message: 'Group not found' });
     }
 
-    // Update group metadata to include new member
-    await db.ref(`groups/${groupId}/members/${newMemberUid}`).set(true);
+    const groupData = groupDoc.data();
 
-    // Add group summary to new member's profile for sidebar loading
+    await groupRef.update({
+      members: admin.firestore.FieldValue.arrayUnion(newMemberUid)
+    });
+
     const groupSummary = {
       id: groupId,
       name: groupData.name,
@@ -141,7 +144,20 @@ const addGroupMember = async (req, res) => {
       unread: 0
     };
 
-    await db.ref(`users/${newMemberUid}/groups/${groupId}`).set(groupSummary);
+    const batch = firestore.batch();
+    batch.set(firestore.collection('users').doc(newMemberUid).collection('groups').doc(groupId), groupSummary);
+
+    if (wrappedKey) {
+      const keyRef = firestore.collection('groups').doc(groupId).collection('e2ee_keys').doc(newMemberUid);
+      batch.set(keyRef, {
+        wrappedKey: wrappedKey.wrappedKey,
+        iv: wrappedKey.iv,
+        wrapperUid: req.user.uid,
+        createdAt: Date.now()
+      });
+    }
+
+    await batch.commit();
 
     res.status(200).json({ message: 'Member added successfully', newMemberUid });
   } catch (error) {
@@ -150,4 +166,29 @@ const addGroupMember = async (req, res) => {
   }
 };
 
-module.exports = { createGroup, getGroups, getGroupMembers, addGroupMember };
+const getGroupKey = async (req, res) => {
+  try {
+    const { uid } = req.user;
+    const { groupId } = req.params;
+
+    const keyDoc = await firestore.collection('groups').doc(groupId)
+      .collection('e2ee_keys').doc(uid).get();
+
+    if (!keyDoc.exists) {
+      return res.status(404).json({ message: 'E2EE key not found for this user in this group' });
+    }
+
+    const keyData = keyDoc.data();
+    const wrapperDoc = await firestore.collection('users').doc(keyData.wrapperUid).get();
+    
+    res.status(200).json({
+      ...keyData,
+      wrapperPublicKey: wrapperDoc.exists ? wrapperDoc.data().publicKey : null
+    });
+  } catch (error) {
+    console.error('[GetGroupKey] Error:', error.message);
+    res.status(500).json({ message: 'Server error fetching group key' });
+  }
+};
+
+module.exports = { createGroup, getGroups, getGroupMembers, addGroupMember, getGroupKey };

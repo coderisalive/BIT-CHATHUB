@@ -1,6 +1,5 @@
-const { admin, db, auth, isConfigured } = require('../config/firebaseAdmin');
+const { admin, db, firestore, auth, isConfigured } = require('../config/firebaseAdmin');
 const axios = require('axios');
-
 
 /**
  * Sync user with Firestore after Firebase Auth signup/login on frontend.
@@ -8,25 +7,48 @@ const axios = require('axios');
 const syncUser = async (req, res) => {
   try {
     const { uid, email, name, picture } = req.user;
+    const { publicKey, encryptedPrivateKey } = req.body;
 
-    const userRef = db.ref(`users/${uid}`);
-    const snapshot = await userRef.get();
+    const userRef = firestore.collection('users').doc(uid);
+    const doc = await userRef.get();
 
-    if (!snapshot.exists()) {
+    if (!doc.exists) {
       const newUser = {
         name: name || 'User',
         email: email || '',
         avatar: picture || '',
         firebaseUID: uid,
+        publicKey: publicKey || null,
+        encryptedPrivateKey: encryptedPrivateKey || null,
         createdAt: new Date().toISOString(),
         isMock: req.user.isMock || false
       };
-      newUser.isMock = req.user.isMock || false;
       await userRef.set(newUser);
       return res.status(201).json(newUser);
     }
 
-    res.status(200).json({ ...snapshot.val(), isMock: req.user.isMock || false });
+    const userData = doc.data();
+    const updates = {};
+    let shouldUpdate = false;
+
+    // Update public key if missing
+    if (publicKey && !userData.publicKey) {
+      updates.publicKey = publicKey;
+      shouldUpdate = true;
+    }
+
+    // Update encrypted private key for recovery if missing
+    if (encryptedPrivateKey && !userData.encryptedPrivateKey) {
+      updates.encryptedPrivateKey = encryptedPrivateKey;
+      shouldUpdate = true;
+    }
+
+    if (shouldUpdate) {
+      await userRef.update(updates);
+      Object.assign(userData, updates);
+    }
+
+    res.status(200).json({ ...userData, isMock: req.user.isMock || false });
   } catch (error) {
     console.error('Sync user error:', error.message);
     res.status(500).json({ message: 'Server error during user sync' });
@@ -36,14 +58,13 @@ const syncUser = async (req, res) => {
 const getMe = async (req, res) => {
   try {
     const { uid } = req.user;
-    const userRef = db.ref(`users/${uid}`);
-    const snapshot = await userRef.get();
+    const userDoc = await firestore.collection('users').doc(uid).get();
 
-    if (!snapshot.exists()) {
+    if (!userDoc.exists) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    res.status(200).json({ ...snapshot.val(), isMock: req.user.isMock || false });
+    res.status(200).json({ ...userDoc.data(), isMock: req.user.isMock || false });
   } catch (error) {
     console.error('Get me error:', error.message);
     res.status(500).json({ message: 'Server error fetching user profile' });
@@ -59,12 +80,11 @@ const updateProfile = async (req, res) => {
       return res.status(400).json({ message: 'Name or Avatar is required' });
     }
 
-    const userRef = db.ref(`users/${uid}`);
+    const userRef = firestore.collection('users').doc(uid);
     
-    // Logic to delete old profile photo from ImageKit
     if (avatarFileId) {
-      const snapshot = await userRef.get();
-      const userData = snapshot.val() || {};
+      const userDoc = await userRef.get();
+      const userData = userDoc.data() || {};
       const oldFileId = userData.avatarFileId;
 
       if (oldFileId && oldFileId !== avatarFileId) {
@@ -74,7 +94,6 @@ const updateProfile = async (req, res) => {
           console.log(`[Cleanup] Deleted previous avatar ${oldFileId} from ImageKit.`);
         } catch (delErr) {
           console.error(`[Cleanup] Failed to delete old avatar ${oldFileId}:`, delErr.message);
-          // Don't fail the update if deletion fails (e.g. file already gone)
         }
       }
     }
@@ -100,61 +119,43 @@ const updateProfile = async (req, res) => {
 
 const searchUsers = async (req, res) => {
   try {
-    const { query } = req.query;
-    if (!query) {
+    const { query: searchQuery } = req.query;
+    if (!searchQuery) {
       return res.status(400).json({ message: 'Search query is required' });
     }
 
-    const searchTerm = query.toLowerCase().trim();
+    const searchTerm = searchQuery.toLowerCase().trim();
     console.log(`[Search] Looking for: ${searchTerm}`);
 
     if (!isConfigured) {
-      console.warn(`[Search] Limited mode active. Cannot search database without Service Account.`);
       return res.status(200).json([]);
     }
 
-    // 1. Search in our Realtime Database
-    const usersRef = db.ref('users');
-    const snapshot = await usersRef.get();
-    const users = snapshot.val() || {};
+    // 1. Search in Firestore
+    const usersSnap = await firestore.collection('users')
+      .where('email', '==', searchTerm)
+      .get();
+    
+    let results = usersSnap.docs.map(doc => doc.data());
 
-    let results = Object.values(users).filter(u =>
-      u.email?.toLowerCase() === searchTerm || (u.phone && u.phone === searchTerm)
-    );
-
-    console.log(`[Search] Found in RTDB: ${results.length} matches`);
-
-    // 2. If not found in RTDB, check Firebase Authentication directly (only if Admin is configured)
-    if (results.length === 0 && isConfigured) {
+    // 2. Fallback to Firebase Auth
+    if (results.length === 0) {
       try {
-        console.log(`[Search] Not found in RTDB, checking Firebase Auth for ${searchTerm}...`);
-        let firebaseUser;
-        if (searchTerm.includes('@')) {
-          firebaseUser = await auth.getUserByEmail(searchTerm);
-        } else {
-          firebaseUser = await admin.auth().getUserByPhoneNumber(searchTerm);
-        }
-
+        const firebaseUser = await auth.getUserByEmail(searchTerm);
         if (firebaseUser) {
-          console.log(`[Search] Found in Firebase Auth: ${firebaseUser.uid}`);
           const foundUser = {
             name: firebaseUser.displayName || 'Firebase User',
             email: firebaseUser.email || '',
             avatar: firebaseUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${firebaseUser.uid}`,
             firebaseUID: firebaseUser.uid,
-            isNew: true
-          };
-          results = [foundUser];
-
-          // Pre-create the user in RTDB so they are searchable by others
-          await db.ref(`users/${firebaseUser.uid}`).set({
-            ...foundUser,
             createdAt: new Date().toISOString()
-          });
-          console.log(`[Search] Profile pre-created for ${firebaseUser.uid}`);
+          };
+          // Create in Firestore
+          await firestore.collection('users').doc(firebaseUser.uid).set(foundUser);
+          results = [foundUser];
         }
       } catch (authError) {
-        console.log(`[Search] Firebase Auth lookup failed/not found: ${authError.message}`);
+        // Not found in auth either
       }
     }
 
@@ -168,20 +169,20 @@ const searchUsers = async (req, res) => {
 const getContacts = async (req, res) => {
   try {
     const { uid } = req.user;
-    const contactsRef = db.ref(`users/${uid}/contacts`);
-    const snapshot = await contactsRef.get();
-    const contacts = snapshot.val() || {};
+    const contactsSnap = await firestore.collection('users').doc(uid).collection('contacts').get();
     
-    // Fetch latest name/avatar from main users table for each contact
-    const contactUids = Object.keys(contacts);
-    const updatedContacts = await Promise.all(contactUids.map(async (cUid) => {
-      const userSnap = await db.ref(`users/${cUid}`).get();
-      const userData = userSnap.val() || {};
+    const updatedContacts = await Promise.all(contactsSnap.docs.map(async (contactDoc) => {
+      const cUid = contactDoc.id;
+      const contactData = contactDoc.data();
+      const userDoc = await firestore.collection('users').doc(cUid).get();
+      const userData = userDoc.exists ? userDoc.data() : {};
+      
       return {
         uid: cUid,
-        ...contacts[cUid],
-        name: userData.name || contacts[cUid].name,
-        avatar: userData.avatar || contacts[cUid].avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userData.email || cUid}`
+        ...contactData,
+        name: userData.name || contactData.name,
+        avatar: userData.avatar || contactData.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${cUid}`,
+        publicKey: userData.publicKey || null
       };
     }));
 
@@ -196,18 +197,13 @@ const addContact = async (req, res) => {
   try {
     const { uid } = req.user;
     const { contact } = req.body;
-
-    // Support any possible ID field passed from frontend
     const contactUid = contact.firebaseUID || contact.uid || contact.id;
 
-    if (!contact || !contactUid) {
-      console.warn('[AddContact] No UID found for contact:', contact);
+    if (!contactUid) {
       return res.status(400).json({ message: 'Valid contact info required' });
     }
 
-    const contactsRef = db.ref(`users/${uid}/contacts/${contactUid}`);
-    // Save everything, but ensure the ID fields are present
-    await contactsRef.update({
+    await firestore.collection('users').doc(uid).collection('contacts').doc(contactUid).set({
       ...contact,
       uid: contactUid,
       firebaseUID: contactUid,
@@ -226,34 +222,13 @@ const removeContact = async (req, res) => {
     const { uid } = req.user;
     const { contactUid } = req.params;
 
-    if (!contactUid) {
-      return res.status(400).json({ message: 'Contact UID required' });
-    }
-
-    const contactRef = db.ref(`users/${uid}/contacts/${contactUid}`);
-    const snapshot = await contactRef.once('value');
-    const contactData = snapshot.val();
-
-    if (!contactData) {
-      console.warn(`[RemoveContact] Contact ${contactUid} not found for user ${uid}`);
-      return res.status(404).json({ message: 'Contact not found' });
-    }
-
-    await contactRef.remove();
-    console.log(`[RemoveContact] Successfully removed ${contactData.name || contactUid} (${contactUid}) for user ${uid}`);
-    
-    // We don't necessarily need a socket emit here if the user's Sidebar is relying on onValue
-    // But for consistency with our hybrid approach, we can emit:
-    // io.to(uid).emit('contacts_updated'); 
-    // Wait, authController doesn't have io. We'll rely on the real-time listener.
-
+    await firestore.collection('users').doc(uid).collection('contacts').doc(contactUid).delete();
     res.status(200).json({ message: 'Contact removed successfully' });
   } catch (error) {
     console.error('[RemoveContact] Error:', error.message);
     res.status(500).json({ message: 'Server error removing contact' });
   }
 };
-
 
 const changePassword = async (req, res) => {
   try {
@@ -268,42 +243,23 @@ const changePassword = async (req, res) => {
       return res.status(400).json({ message: 'New passwords do not match' });
     }
 
-    if (newPassword.length < 6) {
-      return res.status(400).json({ message: 'New password must be at least 6 characters' });
-    }
-
-    // 1. Verify old password using Firebase Auth REST API
     const API_KEY = process.env.FIREBASE_API_KEY;
-    if (!API_KEY) {
-      console.error('FIREBASE_API_KEY is missing in backend .env');
-      return res.status(500).json({ message: 'Server configuration error' });
-    }
-
     try {
       const verifyUrl = `https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${API_KEY}`;
-      await axios.post(verifyUrl, {
-        email: email,
-        password: oldPassword,
-        returnSecureToken: true
-      });
-      console.log(`[Auth] Password verified for user ${email}`);
+      await axios.post(verifyUrl, { email, password: oldPassword, returnSecureToken: true });
     } catch (verifyError) {
-      console.warn(`[Auth] Password verification failed for ${email}:`, verifyError.response?.data?.error?.message || verifyError.message);
       return res.status(401).json({ message: 'Incorrect old password' });
     }
 
-    // 2. Update password via Firebase Admin SDK
-    await admin.auth().updateUser(uid, {
-      password: newPassword
-    });
-
-    console.log(`[Auth] Password successfully updated for user ${uid}`);
+    await admin.auth().updateUser(uid, { password: newPassword });
     res.status(200).json({ message: 'Password updated successfully' });
   } catch (error) {
     console.error('Change password error:', error.message);
     res.status(500).json({ message: 'Server error updating password' });
   }
 };
+
+module.exports = { syncUser, getMe, updateProfile, searchUsers, getContacts, addContact, removeContact, changePassword };
 
 
 module.exports = { syncUser, getMe, updateProfile, searchUsers, getContacts, addContact, removeContact, changePassword };

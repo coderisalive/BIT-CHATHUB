@@ -7,9 +7,30 @@ import {
   updateProfile as updateFirebaseProfile
 } from 'firebase/auth';
 import { ref, set, push, onValue } from 'firebase/database';
-import { auth, db } from '../config/firebaseConfig';
+import { 
+  getDoc, 
+  doc, 
+  setDoc, 
+  collection, 
+  query, 
+  where, 
+  getDocs 
+} from 'firebase/firestore';
+import { auth, db, firestore } from '../config/firebaseConfig';
 import axios from 'axios';
 import { io } from 'socket.io-client';
+import { 
+  generateIdentityKeys, 
+  deriveSharedSecret, 
+  generateGroupKey, 
+  exportSymmetricKey, 
+  importSymmetricKey, 
+  encryptMessage, 
+  decryptMessage,
+  backupPrivateKey,
+  recoverPrivateKey,
+  hasPrivateKey
+} from '../utils/crypto';
 
 const AuthContext = createContext();
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
@@ -21,6 +42,9 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [socket, setSocket] = useState(null);
+  const [sharedKeys, setSharedKeys] = useState({}); // Cache for derived AES keys: { recipientUid: CryptoKey }
+  const [groupKeys, setGroupKeys] = useState({});   // Cache for Group symmetric keys: { groupId: CryptoKey }
+  const [recoveryStatus, setRecoveryStatus] = useState('loading'); // loading, needs_recovery, ready
 
   useEffect(() => {
     if (user && user.email) {
@@ -57,6 +81,16 @@ export const AuthProvider = ({ children }) => {
           } else {
             setUser({ ...firebaseUser, ...data });
           }
+
+          // --- Phase 3: Recovery Check ---
+          const hasPk = await hasPrivateKey();
+          if (!hasPk && data.encryptedPrivateKey) {
+            console.log('[E2EE] Identity key missing but backup found. Recovery required.');
+            setRecoveryStatus('needs_recovery');
+          } else {
+            setRecoveryStatus('ready');
+          }
+
         } catch (error) {
           console.error("User sync failed:", error);
           setUser(firebaseUser); // Fallback to basic firebase user
@@ -70,10 +104,98 @@ export const AuthProvider = ({ children }) => {
     return unsubscribe;
   }, [API_URL]);
 
-  const signup = async (email, password, name) => {
+  const signupWithE2EE = async (email, password, name, recoveryPassphrase) => {
+    // 1. Create Firebase Auth user
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     await updateFirebaseProfile(userCredential.user, { displayName: name });
+
+    // 2. Generate E2EE Identity Keys
+    console.log('[E2EE] Generating identity keys for new user...');
+    const publicKey = await generateIdentityKeys();
+
+    // 3. Backup Private Key (Phase 3)
+    console.log('[E2EE] Creating secure backup of private key...');
+    const backupBlob = await backupPrivateKey(recoveryPassphrase);
+
+    // 4. Initial sync with backend to create Firestore record with PublicKey and Backup
+    const token = await userCredential.user.getIdToken();
+    const { data } = await axios.post(`${API_URL}/auth/sync`, 
+      { publicKey, encryptedPrivateKey: backupBlob }, 
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+
+    setUser({ ...userCredential.user, ...data });
+    setRecoveryStatus('ready');
     return userCredential.user;
+  };
+
+  const recoverAccount = async (passphrase) => {
+    if (!user?.encryptedPrivateKey) return { success: false, message: 'No backup found on server' };
+    
+    try {
+      console.log('[E2EE] Attempting to recover identity...');
+      await recoverPrivateKey(user.encryptedPrivateKey, passphrase);
+      setRecoveryStatus('ready');
+      return { success: true };
+    } catch (err) {
+      console.error('[E2EE] Recovery failed:', err);
+      return { success: false, message: 'Invalid recovery passphrase' };
+    }
+  };
+
+  const getSharedKeyForUser = async (recipientUid) => {
+    if (sharedKeys[recipientUid]) return sharedKeys[recipientUid];
+
+    try {
+      // 1. Fetch recipient's public key from Firestore
+      const recipientDoc = await getDoc(doc(firestore, 'users', recipientUid));
+      if (!recipientDoc.exists()) throw new Error('Recipient not found');
+      
+      const recipientPublicKey = recipientDoc.data().publicKey;
+      if (!recipientPublicKey) throw new Error('Recipient has not enabled E2EE');
+
+      // 2. Derive shared secret
+      console.log(`[E2EE] Deriving shared secret for ${recipientUid}...`);
+      const sharedKey = await deriveSharedSecret(recipientPublicKey);
+
+      // 3. Cache and return
+      setSharedKeys(prev => ({ ...prev, [recipientUid]: sharedKey }));
+      return sharedKey;
+    } catch (error) {
+      // Don't log full error to console to keep it clean for expected legacy cases
+      console.warn(`[E2EE] Could not get shared key for ${recipientUid}: ${error.message}`);
+      return null;
+    }
+  };
+
+  const getGroupKey = async (groupId) => {
+    if (groupKeys[groupId]) return groupKeys[groupId];
+
+    try {
+      const idToken = await auth.currentUser.getIdToken();
+      // 1. Fetch wrapped key from backend
+      const res = await axios.get(`${API_URL}/groups/${groupId}/key`, {
+        headers: { Authorization: `Bearer ${idToken}` }
+      });
+      
+      const { wrappedKey, iv, wrapperPublicKey } = res.data;
+      if (!wrappedKey || !iv || !wrapperPublicKey) throw new Error('Incomplete E2EE key data');
+
+      // 2. Derive the shared secret with the person who wrapped the key for us
+      console.log(`[E2EE] Unwrapping group key for ${groupId}...`);
+      const sharedSecret = await deriveSharedSecret(wrapperPublicKey);
+
+      // 3. Unwrap (decrypt) the symmetric key
+      const unwrappedBase64 = await decryptMessage({ ciphertext: wrappedKey, iv }, sharedSecret);
+      const groupKey = await importSymmetricKey(unwrappedBase64);
+
+      // 4. Cache and return
+      setGroupKeys(prev => ({ ...prev, [groupId]: groupKey }));
+      return groupKey;
+    } catch (error) {
+      console.error('[E2EE] Failed to get group key:', error);
+      return null;
+    }
   };
 
   const login = (email, password) => {
@@ -208,9 +330,42 @@ export const AuthProvider = ({ children }) => {
   const createGroup = async (name, members) => {
     try {
       const idToken = await auth.currentUser.getIdToken();
-      const res = await axios.post(`${API_URL}/groups`, { name, members }, {
+      const meUid = auth.currentUser.uid;
+
+      // Ensure I am in the list for wrapping
+      if (!members.includes(meUid)) members.push(meUid);
+
+      // --- E2EE Phase ---
+      console.log('[E2EE] Initializing group security...');
+      const groupKey = await generateGroupKey();
+      const groupKeyBase64 = await exportSymmetricKey(groupKey);
+      const keyMap = {};
+
+      // Wrap for every initial member
+      for (const memberUid of members) {
+        try {
+          const sharedSecret = await getSharedKeyForUser(memberUid);
+          if (sharedSecret) {
+            const wrapped = await encryptMessage(groupKeyBase64, sharedSecret);
+            keyMap[memberUid] = {
+              wrappedKey: wrapped.ciphertext,
+              iv: wrapped.iv
+            };
+          }
+        } catch (err) {
+          console.warn(`[E2EE] Could not wrap key for member ${memberUid}, they might not have E2EE enabled.`, err);
+        }
+      }
+
+      const res = await axios.post(`${API_URL}/groups`, { name, members, keyMap }, {
         headers: { Authorization: `Bearer ${idToken}` }
       });
+
+      // Cache the key we just created
+      if (res.data.group) {
+        setGroupKeys(prev => ({ ...prev, [res.data.group.id]: groupKey }));
+      }
+
       return res.data.group;
     } catch (error) {
       console.error('Create group error:', error);
@@ -260,7 +415,26 @@ export const AuthProvider = ({ children }) => {
   const addGroupMember = async (groupId, newMemberUid) => {
     try {
       const idToken = await auth.currentUser.getIdToken();
-      const res = await axios.post(`${API_URL}/groups/${groupId}/members`, { newMemberUid }, {
+      
+      // --- E2EE Phase ---
+      let wrappedKey = null;
+      try {
+        const groupKey = await getGroupKey(groupId);
+        const sharedSecret = await getSharedKeyForUser(newMemberUid);
+        
+        if (groupKey && sharedSecret) {
+          const groupKeyBase64 = await exportSymmetricKey(groupKey);
+          const wrapped = await encryptMessage(groupKeyBase64, sharedSecret);
+          wrappedKey = {
+            wrappedKey: wrapped.ciphertext,
+            iv: wrapped.iv
+          };
+        }
+      } catch (err) {
+        console.warn('[E2EE] Failed to wrap key for new member:', err);
+      }
+
+      const res = await axios.post(`${API_URL}/groups/${groupId}/members`, { newMemberUid, wrappedKey }, {
         headers: { Authorization: `Bearer ${idToken}` }
       });
       return res.data;
@@ -313,6 +487,20 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const resetUnread = async (contactId) => {
+    try {
+      const idToken = await auth.currentUser.getIdToken();
+      await axios.post(`${API_URL}/messages/reset-unread`, 
+        { contactId },
+        { headers: { Authorization: `Bearer ${idToken}` } }
+      );
+      return true;
+    } catch (error) {
+      console.error('Reset unread error:', error);
+      return false;
+    }
+  };
+
   const getChatId = (uid1, uid2) => {
     return uid1 < uid2 ? `${uid1}_${uid2}` : `${uid2}_${uid1}`;
   };
@@ -346,7 +534,7 @@ export const AuthProvider = ({ children }) => {
 
   const value = {
     user,
-    signup,
+    signup: signupWithE2EE,
     login,
     logout,
     updateProfile: updateProfileInDB,
@@ -367,6 +555,11 @@ export const AuthProvider = ({ children }) => {
     sendMessage,
     getChatId,
     changePassword,
+    getSharedKeyForUser,
+    getGroupKey,
+    recoverAccount,
+    recoveryStatus,
+    resetUnread,
     socket,
     loading
   };

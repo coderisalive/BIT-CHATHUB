@@ -20,18 +20,17 @@ const uploadImage = async (req, res) => {
       folder: '/chat_uploads/'
     });
 
-    // Track upload in Firebase for auto-deletion (48 hours)
+    // Track upload in Firestore for auto-deletion (48 hours)
     try {
-      const { db: adminDb } = require('../config/firebaseAdmin');
-      await adminDb.ref('uploads').push({
+      const { firestore } = require('../config/firebaseAdmin');
+      await firestore.collection('uploads').add({
         fileId: response.fileId,
         fileUrl: response.url,
         createdAt: Date.now()
       });
-      console.log(`[Upload] Tracked file ${response.fileId} in Firebase.`);
+      console.log(`[Upload] Tracked file ${response.fileId} in Firestore.`);
     } catch (trackErr) {
-      console.error('[Upload] Failed to track upload in Firebase:', trackErr);
-      // We don't fail the request if tracking fails, but it's noted
+      console.error('[Upload] Failed to track upload in Firestore:', trackErr);
     }
 
     res.json({

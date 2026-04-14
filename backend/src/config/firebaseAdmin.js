@@ -55,6 +55,20 @@ const db = isConfigured ? admin.database() : {
   }) 
 };
 
+const firestore = isConfigured ? admin.firestore() : {
+  collection: (path) => ({
+    doc: (docId) => ({
+      get: async () => ({ exists: false, data: () => ({}) }),
+      set: async () => {},
+      update: async () => {},
+      delete: async () => {}
+    }),
+    add: async () => ({ id: 'mock-id' }),
+    where: () => ({ get: async () => ({ docs: [] }) }),
+    orderBy: () => ({ limit: () => ({ get: async () => ({ docs: [] }) }) })
+  })
+};
+
 const auth = isConfigured ? admin.auth() : { 
   getUserByEmail: async () => null, 
   getUserByPhoneNumber: async () => null,
@@ -64,4 +78,4 @@ const auth = isConfigured ? admin.auth() : {
   }
 };
 
-module.exports = { admin, db, auth, isConfigured };
+module.exports = { admin, db, firestore, auth, isConfigured };

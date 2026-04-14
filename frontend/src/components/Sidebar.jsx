@@ -2,12 +2,12 @@ import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-hot-toast';
 
-import { db } from '../config/firebaseConfig';
-import { ref, onValue } from 'firebase/database';
+import { firestore } from '../config/firebaseConfig';
+import { collection, query, onSnapshot, orderBy } from 'firebase/firestore';
 import CreateGroupModal from './CreateGroupModal';
 
 const Sidebar = ({ onChatSelect, selectedChatId }) => {
-  const { user, logout, updateProfile, uploadProfilePicture, searchUsers, getContacts, addContact, removeContact, createGroup, getGroups, changePassword } = useAuth();
+  const { user, logout, updateProfile, uploadProfilePicture, searchUsers, getContacts, addContact, removeContact, createGroup, getGroups, changePassword, resetUnread } = useAuth();
   const [activeFilter, setActiveFilter] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
   const [showProfile, setShowProfile] = useState(false);
@@ -31,18 +31,13 @@ const Sidebar = ({ onChatSelect, selectedChatId }) => {
     if (!user) return;
 
     const uid = user.uid || user.firebaseUID;
-    const contactsRef = ref(db, `users/${uid}/contacts`);
-    const groupsRef = ref(db, `users/${uid}/groups`);
     
     const loadFromApi = async () => {
-      console.log('[Sidebar] Re-fetching contacts & groups via API...');
+      console.log('[Sidebar] Re-fetching data via API...');
       try {
         const [contacts, groups] = await Promise.all([getContacts(), getGroups()]);
-        console.log(`[Sidebar] API Results: ${contacts?.length || 0} contacts, ${groups?.length || 0} groups`);
-        
         const allMap = new Map();
 
-        // 1. Process contacts
         (contacts || []).forEach(c => {
           const id = c.uid || c.id;
           allMap.set(id, { 
@@ -52,7 +47,6 @@ const Sidebar = ({ onChatSelect, selectedChatId }) => {
           });
         });
 
-        // 2. Process groups (groups will override any mistakenly added contact with the same ID)
         (groups || []).forEach(g => {
           const id = g.id;
           allMap.set(id, { 
@@ -66,25 +60,20 @@ const Sidebar = ({ onChatSelect, selectedChatId }) => {
         const all = Array.from(allMap.values())
           .sort((a, b) => (b.lastMessageTime || 0) - (a.lastMessageTime || 0));
         
-        console.log('[Sidebar] Final combined list count:', all.length);
         setAllChats(all);
       } catch (err) {
-        console.error('[Sidebar] Error in loadFromApi:', err);
+        console.error('[Sidebar] Error:', err);
       }
     };
 
-    // 1. Listen for Contacts
-    const unsubscribeContacts = onValue(contactsRef, (snapshot) => {
-      loadFromApi(); // Just re-fetch all for simplicity
-    });
-
-    // 2. Listen for Groups
-    const unsubscribeGroups = onValue(groupsRef, (snapshot) => {
+    // 1. Listen for Contacts in Firestore
+    const contactsQuery = query(collection(firestore, 'users', uid, 'contacts'));
+    const unsubscribeContacts = onSnapshot(contactsQuery, () => {
       loadFromApi();
     });
 
+    // 2. Listen for User Profile / Groups (Simplified)
     const handleProfileUpdate = (data) => {
-      console.log('[Sidebar] Profile Update detected:', data);
       setAllChats(prev => prev.map(chat => {
         if (chat.uid === data.uid || chat.id === data.uid) {
           return { ...chat, name: data.name || chat.name, avatar: data.avatar || chat.avatar };
@@ -93,7 +82,6 @@ const Sidebar = ({ onChatSelect, selectedChatId }) => {
       }));
     };
 
-    // 3. Socket Fallback & Updates
     if (window.socket) {
       window.socket.on('contacts_updated', loadFromApi);
       window.socket.on('groups_updated', loadFromApi);
@@ -104,7 +92,6 @@ const Sidebar = ({ onChatSelect, selectedChatId }) => {
 
     return () => {
       unsubscribeContacts();
-      unsubscribeGroups();
       if (window.socket) {
         window.socket.off('contacts_updated', loadFromApi);
         window.socket.off('groups_updated', loadFromApi);
@@ -474,13 +461,10 @@ const Sidebar = ({ onChatSelect, selectedChatId }) => {
             className={`chat-item ${selectedChatId === chat.id ? 'active' : ''}`}
             onClick={() => {
               onChatSelect(chat);
-              // Reset unread count in DB
-              const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-              fetch(`${API_BASE}/messages/reset-unread`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ userId: user.uid || user.firebaseUID, contactId: chat.uid || chat.id })
-              }).catch(e => console.error('Failed to reset unread:', e));
+              // Reset unread count in DB via authenticated helper
+              if (chat.unread > 0) {
+                resetUnread(chat.uid || chat.id);
+              }
             }}
           >
             <div className="avatar" onClick={(e) => {
