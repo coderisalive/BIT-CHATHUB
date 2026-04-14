@@ -1402,3 +1402,253 @@ body {
 .message-text {
   min-width: 60px;
 }
+
+/* Game System UI */
+.game-invite-card {
+  background-color: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  padding: 12px;
+  margin-top: 4px;
+  border: 1px solid var(--border);
+  min-width: 220px;
+}
+
+.game-invite-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.game-icon {
+  font-size: 28px;
+}
+
+.game-invite-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent);
+}
+
+.game-invite-desc {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text-main);
+  margin-top: 2px;
+}
+
+.game-join-btn {
+  width: 100%;
+  padding: 10px;
+  background-color: var(--accent);
+  color: #111b21;
+  border: none;
+  border-radius: 6px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.game-join-btn:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+.game-join-btn:active {
+  transform: translateY(0);
+}
+
+/* Overlay Modal */
+.game-overlay-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background-color: rgba(11, 20, 26, 0.9);
+  backdrop-filter: blur(10px);
+  z-index: 2000;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.game-overlay-content {
+  background-color: var(--sidebar-bg);
+  width: 95%;
+  max-width: 480px;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+  display: flex;
+  flex-direction: column;
+  animation: slideUp 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes slideUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.game-overlay-header {
+  padding: 20px 24px;
+  background-color: var(--active-chat);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+}
+
+.game-overlay-header h3 {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.game-close-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 50%;
+  display: flex;
+  transition: all 0.2s;
+}
+
+.game-close-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
+.game-overlay-body {
+  padding: 30px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 360px;
+  background-color: #0c1317;
+}
+
+.inline-game-container {
+  margin-top: 12px;
+  background: rgba(0,0,0,0.2);
+  border-radius: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+}
+
+.tictactoe-board {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  width: 100%;
+  max-width: 300px;
+}
+
+.tictactoe-cell {
+  aspect-ratio: 1;
+  background: var(--bg);
+  border: none;
+  border-radius: 8px;
+  font-size: 32px;
+  font-weight: 700;
+  color: white;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tictactoe-cell:hover:not(:disabled) {
+  background: var(--active-chat);
+}
+
+.tictactoe-cell.x { color: #53bdeb; }
+.tictactoe-cell.o { color: #f07f7f; }
+
+.game-status {
+  text-align: center;
+  margin-bottom: 20px;
+  font-weight: 500;
+  font-size: 16px;
+}
+
+/* Number Guess Styles */
+.number-guess-container {
+  width: 100%;
+  max-width: 320px;
+}
+
+.game-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.attempts-badge {
+  background: var(--accent);
+  color: #111b21;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.game-input-group {
+  display: flex;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.game-input-group input {
+  flex: 1;
+  background: var(--search-bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  color: white;
+  outline: none;
+}
+
+.game-btn-primary {
+  background: var(--accent);
+  color: #111b21;
+  border: none;
+  padding: 0 20px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.guess-history {
+  margin-top: 24px;
+  max-height: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.guess-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.guess-item.high { border-left: 3px solid #ff6b6b; }
+.guess-item.low { border-left: 3px solid #53bdeb; }
+.guess-item.correct { border-left: 3px solid var(--accent); background: rgba(0, 168, 132, 0.1); }

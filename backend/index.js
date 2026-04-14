@@ -170,8 +170,8 @@ io.on('connection', (socket) => {
 
       await batch.commit();
 
-      io.to(normalizedTo).emit('contacts_updated');
-      io.to(normalizedFrom).emit('contacts_updated');
+      io.to(targetUid).emit('contacts_updated');
+      io.to(senderUid).emit('contacts_updated');
 
     } catch (err) {
       console.error('[Socket] Message error:', err);
@@ -228,10 +228,7 @@ io.on('connection', (socket) => {
         messagesSnap.forEach(doc => batch.update(doc.ref, { seen: true }));
         await batch.commit();
 
-        const userDoc = await firestore.collection('users').doc(senderUid).get();
-        if (userDoc.exists && userDoc.data().email) {
-          io.to(userDoc.data().email.toLowerCase()).emit('messages_read', { chatId, targetUid });
-        }
+        io.to(senderUid).emit('messages_read', { chatId, targetUid });
       }
     } catch (err) {
       console.error('[Socket] Mark read error:', err);
@@ -262,6 +259,106 @@ io.on('connection', (socket) => {
 
   socket['on']('update_profile', (data) => {
     io.emit('profile_updated', data);
+  });
+
+  // --- Gaming System Integration ---
+
+  socket.on('create_game', async (data) => {
+    const { to, targetUid, senderUid, senderName, senderEmail, gameType } = data;
+    try {
+      const gameState = gameService.createGame(senderUid, targetUid, gameType);
+      const gameId = gameState.gameId;
+
+      // Join the game room
+      socket.join(`game:${gameId}`);
+
+      // Persist Invitation Message to Firestore
+      const getChatId = (u1, u2) => u1 < u2 ? `${u1}_${u2}` : `${u2}_${u1}`;
+      const cid = getChatId(senderUid, targetUid);
+      
+      const gameMsg = {
+        senderId: senderUid,
+        senderName,
+        text: `🎮 Join my game of ${gameType === 'tictactoe' ? 'Tic-Tac-Toe' : 'Number Guess'}!`,
+        type: 'game_invite',
+        gameId,
+        gameType,
+        timestamp: Date.now(),
+        isEncrypted: false
+      };
+
+      const msgRef = await firestore.collection('chats').doc(cid).collection('messages').add(gameMsg);
+      const realId = msgRef.id;
+
+      // Broadcast to recipient
+      io.to(targetUid).emit('receive_message', { id: realId, ...gameMsg });
+      // Self-update
+      socket.emit('game_created', { gameId, message: { id: realId, ...gameMsg } });
+      
+      console.log(`[Game] Created ${gameType} (${gameId}) for ${senderUid} vs ${targetUid}`);
+    } catch (err) {
+      console.error('[Socket] Create game error:', err);
+    }
+  });
+
+  socket.on('join_game', async (data) => {
+    const { gameId, playerId } = data;
+    const game = gameService.joinGame(gameId, playerId);
+    if (game) {
+      socket.join(`game:${gameId}`);
+      io.to(`game:${gameId}`).emit('game_update', game);
+      console.log(`[Game] Player ${playerId} joined ${gameId}`);
+    } else {
+      socket.emit('game_error', { error: 'Game not found or unauthorized' });
+    }
+  });
+
+  socket.on('make_move', async (data) => {
+    const { gameId, playerId, position } = data;
+    const result = gameService.makeMove(gameId, playerId, position);
+    if (result.game) {
+      io.to(`game:${gameId}`).emit('game_update', result.game);
+      
+      // Persistence if finished
+      if (result.game.status === 'finished') {
+        await firestore.collection('games').doc(gameId).set({
+          ...result.game,
+          finishedAt: Date.now()
+        });
+        console.log(`[Game] Finished: ${gameId}. Result saved.`);
+      }
+    } else {
+      socket.emit('game_error', { error: result.error });
+    }
+  });
+
+  socket.on('set_target_number', async (data) => {
+    const { gameId, playerId, value } = data;
+    const result = gameService.setTargetNumber(gameId, playerId, value);
+    if (result.game) {
+      io.to(`game:${gameId}`).emit('game_update', result.game);
+    } else {
+      socket.emit('game_error', { error: result.error });
+    }
+  });
+
+  socket.on('make_guess', async (data) => {
+    const { gameId, playerId, value } = data;
+    const result = gameService.makeGuess(gameId, playerId, value);
+    if (result.game) {
+      io.to(`game:${gameId}`).emit('game_update', result.game);
+
+      // Persistence if finished
+      if (result.game.status === 'finished') {
+        await firestore.collection('games').doc(gameId).set({
+          ...result.game,
+          finishedAt: Date.now()
+        });
+        console.log(`[Game] Finished: ${gameId}. Result saved.`);
+      }
+    } else {
+      socket.emit('game_error', { error: result.error });
+    }
   });
 
   socket.on('disconnect', () => {

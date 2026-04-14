@@ -32,6 +32,8 @@ const ChatWindow = ({ chat, onBack }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
   const [activeMsgId, setActiveMsgId] = useState(null);
+  const [activeGameId, setActiveGameId] = useState(null);
+  const [activeGameType, setActiveGameType] = useState(null);
 
   const [showGroupInfo, setShowGroupInfo] = useState(false);
   const [showChatInfo, setShowChatInfo] = useState(false);
@@ -287,7 +289,7 @@ const ChatWindow = ({ chat, onBack }) => {
       iv: encryptedPayload.iv,
       imageUrl: imageOverrideUrl,
       audioUrl: audioOverrideUrl,
-      senderEmail: user.email.toLowerCase(),
+      senderEmail: user.email?.toLowerCase() || '',
       senderName: user.name,
       senderUid: user.firebaseUID,
       timestamp,
@@ -331,7 +333,7 @@ const ChatWindow = ({ chat, onBack }) => {
   const handleStartGame = (gameType = 'tictactoe') => {
     if (!socket || isGroup) return;
     socket.emit('create_game', {
-      to: chat.email.toLowerCase(),
+      to: chat.email?.toLowerCase() || '',
       targetUid: chat.uid || chat.id,
       senderUid: user.firebaseUID,
       senderName: user.name,
@@ -339,6 +341,13 @@ const ChatWindow = ({ chat, onBack }) => {
       gameType
     });
     setShowGameMenu(false);
+  };
+
+  const handleJoinGame = (gameId, gameType) => {
+    if (!socket) return;
+    setActiveGameId(gameId);
+    setActiveGameType(gameType);
+    socket.emit('join_game', { gameId, playerId: user.firebaseUID });
   };
 
   const markRead = () => {
@@ -731,19 +740,43 @@ const ChatWindow = ({ chat, onBack }) => {
                       )}
                     </div>
                   )}
+                  {m.type === 'game_invite' && (
+                    <div className="game-invite-card">
+                      <div className="game-invite-header">
+                        <span className="game-icon">🎮</span>
+                        <div className="game-invite-info">
+                          <p className="game-invite-title">Game Invitation</p>
+                          <p className="game-invite-desc">
+                            {m.gameType === 'tictactoe' ? 'Tic-Tac-Toe' : 'Number Guess'}
+                          </p>
+                        </div>
+                      </div>
+                      <button 
+                        className="game-join-btn" 
+                        onClick={() => handleJoinGame(m.gameId, m.gameType)}
+                      >
+                        Join & Play
+                      </button>
+                    </div>
+                  )}
+
                   {m.type === 'game' && m.text.includes('Tic-Tac-Toe') && (
-                    <TicTacToe 
-                      gameId={m.gameId} 
-                      socket={socket} 
-                      currentUserId={user.firebaseUID} 
-                    />
+                    <div className="inline-game-container">
+                      <TicTacToe 
+                        gameId={m.gameId} 
+                        socket={socket} 
+                        currentUserId={user.firebaseUID} 
+                      />
+                    </div>
                   )}
                   {m.type === 'game' && m.text.includes('secret number') && (
-                    <NumberGuess 
-                      gameId={m.gameId} 
-                      socket={socket} 
-                      onGameEnd={() => {}} 
-                    />
+                    <div className="inline-game-container">
+                      <NumberGuess 
+                        gameId={m.gameId} 
+                        socket={socket} 
+                        onGameEnd={() => {}} 
+                      />
+                    </div>
                   )}
                   <div className="message-status">
                     <span className="message-time">{m.time}</span>
@@ -849,6 +882,42 @@ const ChatWindow = ({ chat, onBack }) => {
       {showGroupInfo && <GroupInfoModal group={chat} onClose={() => setShowGroupInfo(false)} />}
       {showChatInfo && <ChatInfoModal chat={chat} onClose={() => setShowChatInfo(false)} />}
       {showAddMember && <AddMemberModal group={chat} onClose={() => setShowAddMember(false)} onSuccess={() => setShowAddMember(false)} />}
+
+      {activeGameId && (
+        <div className="game-overlay-modal">
+          <div className="game-overlay-content">
+            <div className="game-overlay-header">
+              <h3>{activeGameType === 'tictactoe' ? 'Tic-Tac-Toe' : 'Number Guess'}</h3>
+              <button 
+                className="game-close-btn" 
+                onClick={() => {
+                  setActiveGameId(null);
+                  setActiveGameType(null);
+                }}
+              >
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/></svg>
+              </button>
+            </div>
+            <div className="game-overlay-body">
+              {activeGameType === 'tictactoe' ? (
+                <TicTacToe 
+                  gameId={activeGameId} 
+                  socket={socket} 
+                  currentUserId={user.firebaseUID} 
+                />
+              ) : (
+                <NumberGuess 
+                  gameId={activeGameId} 
+                  socket={socket} 
+                  onGameEnd={() => {
+                    // We don't auto-close, let user see the result
+                  }} 
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {viewingPhoto && (
         <div className="view-once-modal-overlay">
