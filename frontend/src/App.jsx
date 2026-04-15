@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { CallingProvider } from './calling/CallingContext';
+import CallInterface from './calling/CallInterface';
 import { Toaster, toast } from 'react-hot-toast';
 import Login from './components/Login';
 import Signup from './components/Signup';
@@ -95,7 +97,10 @@ function App() {
               path="/" 
               element={
                 <ProtectedRoute>
-                  <ChatLayout />
+                  <CallingProvider>
+                    <ChatLayout />
+                    <CallInterface />
+                  </CallingProvider>
                 </ProtectedRoute>
               } 
             />

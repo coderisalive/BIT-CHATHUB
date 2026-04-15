@@ -59,8 +59,13 @@ app.get('/', (req, res) => res.status(200).send('BIT CHAT Backend is Live'));
 
 const connectedUsers = new Map(); // email -> socketId
 
+const callHandler = require('./src/socket/callHandler');
+
 io.on('connection', (socket) => {
   console.log(`[Socket] User connected: ${socket.id}`);
+  
+  // Initialize Call Handler
+  callHandler(io, socket);
 
   socket.on('join', (data) => {
     const email = typeof data === 'string' ? data : data?.email;

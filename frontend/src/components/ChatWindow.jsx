@@ -7,6 +7,7 @@ import ChatInfoModal from './ChatInfoModal';
 import TicTacToe from './TicTacToe';
 import NumberGuess from './NumberGuess';
 import { encryptMessage, decryptMessage } from '../utils/crypto';
+import { useCalling } from '../calling/CallingContext';
 
 const ChatWindow = ({ chat, onBack }) => {
   const { 
@@ -21,6 +22,8 @@ const ChatWindow = ({ chat, onBack }) => {
     getSharedKeyForUser,
     getGroupKey
   } = useAuth();
+  
+  const { startCall } = useCalling();
   const [msg, setMsg] = useState('');
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -608,6 +611,16 @@ const ChatWindow = ({ chat, onBack }) => {
           </div>
         </div>
         <div className="header-right" style={{ position: 'relative' }}>
+          {!isGroup && (
+            <>
+              <button className="icon-btn" onClick={() => startCall(chat, false)} title="Voice Call">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M20.01 15.38c-1.23 0-2.42-.2-3.53-.56a.977.977 0 0 0-1.01.24l-2.2 2.2a15.045 15.045 0 0 1-6.59-6.59l2.2-2.21a.96.96 0 0 0 .25-1.01c-.36-1.11-.56-2.3-.56-3.53 0-.55-.45-1-1-1H3.5c-.55 0-1 .45-1 1 0 9.39 7.61 17 17 17 .55 0 1-.45 1-1v-3.5c0-.55-.45-1-1-1z"/></svg>
+              </button>
+              <button className="icon-btn" onClick={() => startCall(chat, true)} title="Video Call">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/></svg>
+              </button>
+            </>
+          )}
           <button className={`icon-btn ${showSearch ? 'active' : ''}`} onClick={() => setShowSearch(!showSearch)} title="Search Messages">
             <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" /></svg>
           </button>
