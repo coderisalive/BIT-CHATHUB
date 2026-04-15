@@ -119,8 +119,13 @@ export const CallingProvider = ({ children }) => {
     if (webrtc.localStream) {
         const audioTrack = webrtc.localStream.getAudioTracks()[0];
         if (audioTrack) {
-            audioTrack.enabled = !audioTrack.enabled;
-            setIsMuted(!audioTrack.enabled);
+            const newState = !audioTrack.enabled;
+            audioTrack.enabled = newState;
+            setIsMuted(!newState);
+            toast.success(newState ? 'Microphone Unmuted' : 'Microphone Muted', {
+                id: 'mute-toast',
+                icon: newState ? '🎤' : '🔇'
+            });
         }
     }
   }, [webrtc.localStream]);
