@@ -103,6 +103,9 @@ io.on('connection', (socket) => {
       targetName, 
       imageUrl, 
       audioUrl,
+      stickerUrl,
+      animationType,
+      messageType,
       tempId,
       isViewOnce
     } = data;
@@ -123,6 +126,9 @@ io.on('connection', (socket) => {
         isEncrypted,
         imageUrl: imageUrl || null,
         audioUrl: audioUrl || null,
+        stickerUrl: stickerUrl || null,
+        animationType: animationType || 'static',
+        messageType: messageType || (imageUrl ? 'image' : (audioUrl ? 'audio' : 'text')),
         timestamp: Date.now(),
         sent: true,
         seen: false,
@@ -149,7 +155,12 @@ io.on('connection', (socket) => {
       console.log(`[Socket] Message relayed to room: ${targetRoom}`);
 
       // 4. Update Contacts in Firestore
-      const lastMsgPreview = isEncrypted ? '🔐 Encrypted Message' : (imageUrl ? '📷 Image' : (audioUrl ? '🎤 Voice Note' : text));
+      let lastMsgPreview = text;
+      if (isEncrypted) lastMsgPreview = '🔐 Encrypted Message';
+      else if (messageType === 'sticker') lastMsgPreview = '🎨 Sticker';
+      else if (messageType === 'gif') lastMsgPreview = '🎬 GIF';
+      else if (imageUrl) lastMsgPreview = '📷 Image';
+      else if (audioUrl) lastMsgPreview = '🎤 Voice Note';
       
       // Update Recipient's Contact list
       const batch = firestore.batch();
@@ -189,7 +200,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('send_group_message', async (data) => {
-    const { groupId, text, encryptedText, iv, senderUid, senderName, imageUrl, audioUrl, tempId } = data;
+    const { groupId, text, encryptedText, iv, senderUid, senderName, imageUrl, audioUrl, stickerUrl, animationType, messageType, tempId } = data;
     const isEncrypted = !!encryptedText;
 
     const messageData = {
@@ -201,6 +212,9 @@ io.on('connection', (socket) => {
       isEncrypted,
       imageUrl: imageUrl || null,
       audioUrl: audioUrl || null,
+      stickerUrl: stickerUrl || null,
+      animationType: animationType || 'static',
+      messageType: messageType || (imageUrl ? 'image' : (audioUrl ? 'audio' : 'text')),
       timestamp: Date.now(),
       isViewOnce: data.isViewOnce || false,
       isOpened: false

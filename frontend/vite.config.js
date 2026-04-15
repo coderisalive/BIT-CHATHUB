@@ -36,4 +36,7 @@ export default defineConfig({
       }
     })
   ],
+  optimizeDeps: {
+    include: ['emoji-mart', '@emoji-mart/react', '@emoji-mart/data', 'lottie-react']
+  }
 })

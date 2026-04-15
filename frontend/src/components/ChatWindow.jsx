@@ -8,6 +8,9 @@ import TicTacToe from './TicTacToe';
 import NumberGuess from './NumberGuess';
 import { encryptMessage, decryptMessage } from '../utils/crypto';
 import { useCalling } from '../calling/CallingContext';
+import StickerPicker from './StickerPicker';
+import data from '@emoji-mart/data';
+import Picker from '@emoji-mart/react';
 
 const ChatWindow = ({ chat, onBack }) => {
   const { 
@@ -41,6 +44,8 @@ const ChatWindow = ({ chat, onBack }) => {
   const [showGroupInfo, setShowGroupInfo] = useState(false);
   const [showChatInfo, setShowChatInfo] = useState(false);
   const [showAddMember, setShowAddMember] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [showStickerPicker, setShowStickerPicker] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef(null);
 
@@ -168,6 +173,9 @@ const ChatWindow = ({ chat, onBack }) => {
         id: data.id || `live-${Date.now()}`,
         text: decodedText,
         type: data.type,
+        messageType: data.messageType,
+        stickerUrl: data.stickerUrl,
+        animationType: data.animationType,
         gameId: data.gameId,
         imageUrl: data.imageUrl,
         audioUrl: data.audioUrl,
@@ -263,15 +271,17 @@ const ChatWindow = ({ chat, onBack }) => {
     };
   }, [socket, chat, isGroup]);
 
-  const handleSend = async (imageOverrideUrl = null, audioOverrideUrl = null) => {
-    if ((!msg.trim() && !imageOverrideUrl && !audioOverrideUrl) || !socket) return;
+  const handleSend = async (imageOverrideUrl = null, audioOverrideUrl = null, stickerData = null, gifUrl = null) => {
+    if ((!msg.trim() && !imageOverrideUrl && !audioOverrideUrl && !stickerData && !gifUrl) || !socket) return;
 
     const timestamp = Date.now();
     const tempId = `temp-${timestamp}`;
     let encryptedPayload = { encryptedText: null, iv: null };
+    
+    const messageType = stickerData ? 'sticker' : (gifUrl ? 'gif' : (imageOverrideUrl ? 'image' : (audioOverrideUrl ? 'audio' : 'text')));
 
-    // E2EE Encryption
-    if (msg.trim()) {
+    // E2EE Encryption only for text messages
+    if (msg.trim() && messageType === 'text') {
       try {
         const sharedKey = isGroup ? await getGroupKey(chat.id) : await getSharedKeyForUser(chat.uid || chat.id);
         if (sharedKey) {
@@ -292,6 +302,9 @@ const ChatWindow = ({ chat, onBack }) => {
       iv: encryptedPayload.iv,
       imageUrl: imageOverrideUrl,
       audioUrl: audioOverrideUrl,
+      stickerUrl: stickerData?.url || gifUrl || null,
+      animationType: stickerData?.type || (gifUrl ? 'gif' : 'static'),
+      messageType,
       senderEmail: user.email?.toLowerCase() || '',
       senderName: user.name,
       senderUid: user.firebaseUID,
@@ -320,6 +333,9 @@ const ChatWindow = ({ chat, onBack }) => {
       text: msg,
       imageUrl: imageOverrideUrl,
       audioUrl: audioOverrideUrl,
+      stickerUrl: stickerData?.url || gifUrl || null,
+      animationType: stickerData?.type || (gifUrl ? 'gif' : 'static'),
+      messageType,
       senderId: user.firebaseUID,
       senderName: user.name,
       timestamp,
@@ -331,6 +347,8 @@ const ChatWindow = ({ chat, onBack }) => {
 
     setMsg('');
     setSendViewOnce(false);
+    setShowEmojiPicker(false);
+    setShowStickerPicker(false);
   };
 
   const handleStartGame = (gameType = 'tictactoe') => {
@@ -587,6 +605,12 @@ const ChatWindow = ({ chat, onBack }) => {
     }
   };
 
+  const isOnlyEmoji = (str) => {
+    if (!str) return false;
+    const emojiRegex = /^(\u00a9|\u00ae|[\u2000-\u3300]|\ud83c[\ud000-\udfff]|\ud83d[\ud000-\udfff]|\ud83e[\ud000-\udfff]| )+$/;
+    return emojiRegex.test(str.trim());
+  };
+
   const displayedMessages = messages.filter(m =>
     !searchQuery.trim() || m.text?.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -670,7 +694,7 @@ const ChatWindow = ({ chat, onBack }) => {
           <div className="message-list">
             {displayedMessages.map(m => (
               <div key={m.id} className={`message-wrapper ${m.senderId === user.firebaseUID ? 'sent' : 'received'}`}>
-                <div className="message-bubble">
+                <div className={`message-bubble ${(m.messageType === 'sticker' || m.messageType === 'gif') ? 'media-bubble' : ''}`}>
                   {isGroup && m.senderId !== user.firebaseUID && (
                     <div style={{ fontSize: '11px', fontWeight: '700', color: '#53bdeb', marginBottom: '4px' }}>
                       {m.senderName}
@@ -693,6 +717,18 @@ const ChatWindow = ({ chat, onBack }) => {
                       {m.senderId === user.firebaseUID && (
                         <button className="delete-btn" onClick={() => handleDeleteForEveryone(m.id)}>Delete for everyone</button>
                       )}
+                    </div>
+                  )}
+
+                  {m.messageType === 'sticker' && (
+                    <div className="sticker-display">
+                      <img src={m.stickerUrl} alt="Sticker" style={{ width: '100%', height: '100%' }} />
+                    </div>
+                  )}
+
+                  {m.messageType === 'gif' && (
+                    <div className="gif-display-container">
+                      <img src={m.stickerUrl || m.imageUrl} alt="GIF" className="gif-display" />
                     </div>
                   )}
 
@@ -744,12 +780,12 @@ const ChatWindow = ({ chat, onBack }) => {
                           <span>Message Viewed</span>
                         </div>
                       ) : (
-                        <div style={{ display: 'flex', alignItems: 'center' }}>
-                          <p>{m.text}</p>
+                        <>
+                          <p className={isOnlyEmoji(m.text) ? "large-emoji-msg" : ""}>{m.text}</p>
                           {m.isViewOnce && !m.isOpened && (
                             <div className="view-once-indicator" title="View Once Message">1</div>
                           )}
-                        </div>
+                        </>
                       )}
                     </div>
                   )}
@@ -827,6 +863,48 @@ const ChatWindow = ({ chat, onBack }) => {
             <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z" /></svg>
           )}
         </button>
+
+        <div className="sticker-picker-container">
+          <button 
+            className={`icon-btn ${showStickerPicker ? 'active' : ''}`} 
+            onClick={() => {
+              setShowStickerPicker(!showStickerPicker);
+              setShowEmojiPicker(false);
+            }} 
+            title="Stickers & GIFs"
+          >
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-5-9h10v2H7z"/></svg>
+          </button>
+          {showStickerPicker && (
+            <StickerPicker 
+              onSelectGif={(gifUrl) => handleSend(null, null, null, gifUrl)}
+              onClose={() => setShowStickerPicker(false)}
+            />
+          )}
+        </div>
+
+        <div style={{ position: 'relative' }}>
+          <button 
+            className={`icon-btn ${showEmojiPicker ? 'active' : ''}`} 
+            onClick={() => {
+              setShowEmojiPicker(!showEmojiPicker);
+              setShowStickerPicker(false);
+            }} 
+            title="Emoji"
+          >
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm3.5-9c.83 0 1.5-.67 1.5-1.5S16.33 8 15.5 8 14 8.67 14 9.5s.67 1.5 1.5 1.5zm-7 0c.83 0 1.5-.67 1.5-1.5S9.33 8 8.5 8 7 8.67 7 9.5 7.67 11 8.5 11zm3.5 6.5c2.33 0 4.31-1.46 5.11-3.5H6.89c.8 2.04 2.78 3.53 5.11 3.53z"/></svg>
+          </button>
+          
+          {showEmojiPicker && (
+            <div style={{ position: 'absolute', bottom: '60px', left: '-20px', zIndex: 1001 }}>
+              <Picker 
+                data={data} 
+                onEmojiSelect={(emoji) => setMsg(prev => prev + emoji.native)}
+                theme="dark"
+              />
+            </div>
+          )}
+        </div>
          <div style={{ position: 'relative' }}>
           {!isGroup && (
             <button className={`icon-btn ${showGameMenu ? 'active' : ''}`} onClick={() => setShowGameMenu(!showGameMenu)} title="Play a Game">
