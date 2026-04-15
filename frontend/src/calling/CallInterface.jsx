@@ -75,9 +75,17 @@ const CallInterface = () => {
             <div className="call-container">
                 {/* Remote Video / Fallback Avatar */}
                 <div className="remote-video-container">
-                    {isVideo && remoteStream ? (
-                        <video ref={remoteVideoRef} autoPlay playsInline className="remote-video" />
-                    ) : (
+                    {remoteStream && (
+                        <video 
+                            ref={remoteVideoRef} 
+                            autoPlay 
+                            playsInline 
+                            className="remote-video" 
+                            style={{ display: isVideo ? 'block' : 'none' }} 
+                        />
+                    )}
+                    
+                    {!isVideo && (
                         <div className="video-fallback">
                             <img 
                                 src={remoteUser?.avatar || 'https://cdn-icons-png.flaticon.com/512/149/149071.png'} 
