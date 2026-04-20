@@ -170,20 +170,10 @@ const ChatWindow = ({ chat, onBack }) => {
       }
 
       const newMessage = {
+        ...data,
         id: data.id || `live-${Date.now()}`,
         text: decodedText,
-        type: data.type,
-        messageType: data.messageType,
-        stickerUrl: data.stickerUrl,
-        animationType: data.animationType,
-        gameId: data.gameId,
-        imageUrl: data.imageUrl,
-        audioUrl: data.audioUrl,
-        isViewOnce: data.isViewOnce || false,
-        isOpened: data.isOpened || false,
-        isEncrypted: data.isEncrypted,
         senderId: data.senderId || data.senderUid,
-        senderName: data.senderName,
         timestamp: data.timestamp || Date.now(),
         time: new Date(data.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true }).toLowerCase()
       };
@@ -366,8 +356,17 @@ const ChatWindow = ({ chat, onBack }) => {
 
   const handleJoinGame = (gameId, gameType) => {
     if (!socket) return;
+    
+    let resolvedType = gameType;
+    if (!resolvedType) {
+      const msg = messages.find(m => m.gameId === gameId);
+      if (msg?.gameType) resolvedType = msg.gameType;
+      else if (msg?.text?.includes('Tic-Tac-Toe')) resolvedType = 'tictactoe';
+      else if (msg?.text?.includes('Number Guess')) resolvedType = 'numberguess';
+    }
+
     setActiveGameId(gameId);
-    setActiveGameType(gameType);
+    setActiveGameType(resolvedType || 'tictactoe'); // Default to tictactoe if still unknown
     socket.emit('join_game', { gameId, playerId: user.firebaseUID });
   };
 
@@ -796,7 +795,9 @@ const ChatWindow = ({ chat, onBack }) => {
                         <div className="game-invite-info">
                           <p className="game-invite-title">Game Invitation</p>
                           <p className="game-invite-desc">
-                            {m.gameType === 'tictactoe' ? 'Tic-Tac-Toe' : 'Number Guess'}
+                            {m.gameType === 'tictactoe' ? 'Tic-Tac-Toe' : 
+                             m.gameType === 'numberguess' ? 'Number Guess' : 
+                             m.text.replace('🎮 Join my game of ', '').replace('!', '')}
                           </p>
                         </div>
                       </div>
@@ -978,7 +979,8 @@ const ChatWindow = ({ chat, onBack }) => {
         <div className="game-overlay-modal">
           <div className="game-overlay-content">
             <div className="game-overlay-header">
-              <h3>{activeGameType === 'tictactoe' ? 'Tic-Tac-Toe' : 'Number Guess'}</h3>
+              <h3>{activeGameType === 'tictactoe' ? 'Tic-Tac-Toe' : 
+                   activeGameType === 'numberguess' ? 'Number Guess' : 'Game'}</h3>
               <button 
                 className="game-close-btn" 
                 onClick={() => {
